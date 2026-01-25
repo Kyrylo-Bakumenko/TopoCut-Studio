@@ -26,6 +26,7 @@ pyyaml = "*"
 fastapi = "*"
 uvicorn = { version = "*", extras = ["standard"] }
 rectpack = "*"
+matplotlib = "*"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "*"
