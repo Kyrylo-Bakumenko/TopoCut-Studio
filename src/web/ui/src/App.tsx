@@ -17,6 +17,7 @@ import {
   Collapse,
   Tag,
   Badge,
+  Popover,
   ConfigProvider,
   theme,
 } from 'antd';
@@ -25,6 +26,7 @@ import {
   CloseCircleOutlined,
   ClockCircleOutlined,
   SyncOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import axios from 'axios';
@@ -276,6 +278,19 @@ function App() {
   const headerBg = isDarkMode ? '#0F172A' : '#1E3A8A';
   const headerText = '#FFFFFF';
   const siderBorder = isDarkMode ? '#1F2937' : '#E2E8F0';
+  const settingsContent = (
+    <div style={{ minWidth: 200 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Text>Dark Mode</Text>
+        <Switch
+          checked={isDarkMode}
+          onChange={setIsDarkMode}
+          checkedChildren="On"
+          unCheckedChildren="Off"
+        />
+      </div>
+    </div>
+  );
 
   return (
     <ConfigProvider
@@ -301,15 +316,6 @@ function App() {
           <Title level={3} style={{ color: headerText, margin: 0 }}>
             Elevation Relief Generator
           </Title>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Text style={{ color: headerText, fontSize: 12 }}>Theme</Text>
-            <Switch
-              checked={isDarkMode}
-              onChange={setIsDarkMode}
-              checkedChildren="Dark"
-              unCheckedChildren="Light"
-            />
-          </div>
         </Header>
         <Layout>
           <Sider
@@ -340,12 +346,6 @@ function App() {
               }}
               disabled={!!isRunning}
             >
-              <Card title="Experiment" size="small" style={{ marginBottom: 16 }}>
-                <Form.Item name={['experiment', 'name']} label="Name" rules={[{ required: true }]}>
-                  <Input />
-                </Form.Item>
-              </Card>
-
               <Card title="Region" size="small" style={{ marginBottom: 16 }}>
                 <Space>
                   <Form.Item
@@ -494,6 +494,12 @@ function App() {
                 </Form.Item>
               </Card>
 
+              <Card title="Experiment" size="small" style={{ marginBottom: 16 }}>
+                <Form.Item name={['experiment', 'name']} label="Name" rules={[{ required: true }]}>
+                  <Input />
+                </Form.Item>
+              </Card>
+
               <Button
                 type="primary"
                 htmlType="submit"
@@ -533,6 +539,18 @@ function App() {
               onChange={setActiveTab}
               type="card"
               style={{ height: '100%', padding: '10px 10px 0 10px' }}
+              tabBarExtraContent={{
+                right: (
+                  <Popover content={settingsContent} title="Settings" trigger="click">
+                    <Button
+                      aria-label="Settings"
+                      icon={<SettingOutlined />}
+                      type="text"
+                      size="small"
+                    />
+                  </Popover>
+                ),
+              }}
               items={[
                 {
                   key: 'map',
