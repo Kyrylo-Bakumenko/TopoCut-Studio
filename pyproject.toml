@@ -1,41 +1,37 @@
 [build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
+requires = ["poetry-core>=1.8.0"]
+build-backend = "poetry.core.masonry.api"
 
-[project]
+[tool.poetry]
 name = "elevation-relief"
 version = "0.1.0"
-authors = [
-  { name="GitHub Copilot", email="copilot@github.com" },
-]
 description = "Topographic Laser Cutting Pipeline"
-readme = "doc/overview.md"
-requires-python = ">=3.9"
-classifiers = [
-    "Programming Language :: Python :: 3",
-    "Operating System :: OS Independent",
-]
-dependencies = [
-    "click",
-    "numpy",
-    "rasterio",
-    "shapely",
-    "scipy",
-    "ezdxf",
-    "Pillow",
-    "pystac-client",
-    "planetary-computer",
-    "dem-stitcher",
-    "pyyaml"
-]
+authors = ["GitHub Copilot <copilot@github.com>"]
+readme = "README.md"
+packages = [{ include = "elevation_relief", from = "src" }]
 
-  [project.optional-dependencies]
-  dev = [
-    "ruff",
-    "black"
-  ]
+[tool.poetry.dependencies]
+python = ">=3.10,<3.13"
+click = "*"
+numpy = "*"
+rasterio = "*"
+shapely = "*"
+scipy = "*"
+ezdxf = "*"
+Pillow = "*"
+pystac-client = "*"
+planetary-computer = "*"
+dem-stitcher = "*"
+pyyaml = "*"
+fastapi = "*"
+uvicorn = { version = "*", extras = ["standard"] }
+rectpack = "*"
 
-[project.scripts]
+[tool.poetry.group.dev.dependencies]
+ruff = "*"
+black = "*"
+
+[tool.poetry.scripts]
 elevation-relief = "elevation_relief.main:main"
 
 [tool.black]

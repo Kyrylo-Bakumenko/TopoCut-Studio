@@ -13,8 +13,8 @@ Generates laser‑cuttable elevation relief models from DEM + satellite imagery.
 
 ### Backend (FastAPI)
 From project root:
-- Create env (optional): `conda env create -f environment.yml` or use your existing Python env.
-- Start API: `uvicorn src.web.api.main:app --reload`
+- Install deps: `poetry install`
+- Start API: `poetry run uvicorn src.web.api.main:app --reload`
 
 ### Frontend (Vite + React)
 From src/web/ui:
