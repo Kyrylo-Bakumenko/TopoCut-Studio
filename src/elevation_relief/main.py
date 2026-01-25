@@ -1,11 +1,13 @@
 import os
+import json
+import re
 import yaml
 import click
 import numpy as np
 import time
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, MultiPolygon
 from shapely.affinity import scale, translate
 from rasterio.warp import calculate_default_transform, reproject, Resampling
 from rasterio.crs import CRS
@@ -62,6 +64,31 @@ def _reproject_raster(src_arr: np.ndarray, src_prof: Dict[str, Any], dst_crs: st
         )
         
     return dst_arr, transform
+
+
+def _parse_layer_id(layer_id: str) -> tuple[int, int]:
+    match = re.search(r"layer_(\d+)_elev_(\d+)", layer_id)
+    if not match:
+        return 0, 0
+    return int(match.group(1)), int(match.group(2))
+
+
+def _polygon_to_rings(poly: Polygon) -> dict:
+    def _coords(coords):
+        return [[float(x), float(y)] for x, y in coords]
+
+    return {
+        "exterior": _coords(poly.exterior.coords),
+        "holes": [_coords(ring.coords) for ring in poly.interiors],
+    }
+
+
+def _geometry_to_polygons(geom: Polygon | MultiPolygon) -> list[Polygon]:
+    if isinstance(geom, Polygon):
+        return [geom]
+    if isinstance(geom, MultiPolygon):
+        return list(geom.geoms)
+    return []
 
 def run_pipeline(cfg: Dict[str, Any], run_id: Optional[str] = None) -> str:
     """
@@ -337,17 +364,18 @@ def run_pipeline(cfg: Dict[str, Any], run_id: Optional[str] = None, progress_cal
         (res_dir / 'nested').mkdir(exist_ok=True)
         report(90, "Exporting Nested Sheets...")
         for s_idx, polys_with_layer in sheets.items():
+            sheet_id = f"sheet_{s_idx:02d}"
             sheet_polys = [p["polygon"] for p in polys_with_layer]
             # Export DXF
-            out_name = res_dir / 'nested' / f"sheet_{s_idx:02d}.dxf"
+            out_name = res_dir / 'nested' / f"{sheet_id}.dxf"
             save_to_dxf(sheet_polys, str(out_name))
             
             # Export SVG Preview
-            out_img = res_dir / 'nested' / f"sheet_{s_idx:02d}.svg"
+            out_img = res_dir / 'nested' / f"{sheet_id}.svg"
             save_polygons_plot(sheet_polys, str(out_img), sheet_w, sheet_h)
 
             # Export Composite Preview (Texture + Vector)
-            out_composite = res_dir / 'nested' / f"sheet_{s_idx:02d}_composite.png"
+            out_composite = res_dir / 'nested' / f"{sheet_id}_composite.png"
             save_composite_sheet(
                 polys_with_layer,
                 res_dir / 'textures',
@@ -356,6 +384,44 @@ def run_pipeline(cfg: Dict[str, Any], run_id: Optional[str] = None, progress_cal
                 str(out_composite),
                 img_trans
             )
+
+            layer_counts: Dict[str, int] = {}
+            cutouts = []
+            for cutout_idx, item in enumerate(polys_with_layer):
+                layer_id = item.get("layer_id", "")
+                layer_index, elevation_m = _parse_layer_id(layer_id)
+                layer_counts[layer_id] = layer_counts.get(layer_id, 0) + 1
+                cutout_id = f"{layer_id}_{layer_counts[layer_id]:02d}"
+                geom = item.get("polygon")
+                if geom is None:
+                    continue
+                polygons = [_polygon_to_rings(p) for p in _geometry_to_polygons(geom)]
+                label_point = geom.representative_point()
+                rotation_deg = 90 if item.get("is_rotated") else 0
+                cutouts.append({
+                    "id": cutout_id,
+                    "layer_id": layer_id,
+                    "layer_index": layer_index,
+                    "elevation_m": elevation_m,
+                    "label": f"L{layer_index + 1:02d}",
+                    "polygons": polygons,
+                    "label_point": [float(label_point.x), float(label_point.y)],
+                    "is_rotated": bool(item.get("is_rotated")),
+                    "rotation_deg": rotation_deg,
+                    "sheet_index": s_idx,
+                    "cutout_index": cutout_idx,
+                })
+
+            manifest = {
+                "sheet_id": sheet_id,
+                "sheet_index": s_idx,
+                "sheet_width_mm": sheet_w,
+                "sheet_height_mm": sheet_h,
+                "cutouts": cutouts,
+            }
+            manifest_path = res_dir / 'nested' / f"{sheet_id}.json"
+            with open(manifest_path, "w") as handle:
+                json.dump(manifest, handle)
             
             print(f"Exported Nested Sheet {s_idx}: {out_name} & {out_img}")
                 

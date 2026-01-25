@@ -68,6 +68,33 @@ export interface JobFile {
   category: string;
 }
 
+export interface SheetPolygon {
+  exterior: [number, number][];
+  holes: [number, number][][];
+}
+
+export interface SheetCutout {
+  id: string;
+  layer_id: string;
+  layer_index: number;
+  elevation_m: number;
+  label: string;
+  polygons: SheetPolygon[];
+  label_point: [number, number];
+  is_rotated: boolean;
+  rotation_deg: number;
+  sheet_index: number;
+  cutout_index: number;
+}
+
+export interface SheetManifest {
+  sheet_id: string;
+  sheet_index: number;
+  sheet_width_mm: number;
+  sheet_height_mm: number;
+  cutouts: SheetCutout[];
+}
+
 export interface JobConfigResponse {
   config: PipelineConfig;
 }
