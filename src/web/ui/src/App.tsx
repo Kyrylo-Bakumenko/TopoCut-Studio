@@ -36,7 +36,7 @@ const { Header, Content, Sider } = Layout;
 const { Title, Text } = Typography;
 const { Option } = Select;
 
-const API_URL = 'http://localhost:8000';
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
 
 const DEFAULT_CONFIG: PipelineConfig = {
   experiment: { name: 'web_run_01', output_dir: 'results' },

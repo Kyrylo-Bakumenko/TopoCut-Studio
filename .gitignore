@@ -18,6 +18,9 @@ node_modules/
 # outputs
 results/
 
+# private docs
+doc/deployment_private.md
+
 # ide/os
 .DS_Store
 .vscode/

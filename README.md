@@ -64,16 +64,16 @@ results/{experiment_name}_{job_id[:8]}/
 The model scale is derived from the user’s width and selected radius. The contour interval is tied to layer thickness so physical layers match vertical elevation steps:
 
 $$
-\text{scale}_{mm/m} = \frac{\text{width}_{mm}}{2 \cdot \text{radius}_{m}}
+\mathrm{scale}_{mm/m} = \frac{\mathrm{width}_{mm}}{2 \cdot \mathrm{radius}_{m}}
 $$
 
 $$
-\text{contour\_interval}_{m} = \frac{\text{layer\_thickness}_{mm}}{\text{scale}_{mm/m}}
+\mathrm{contour\ interval}_{m} = \frac{\mathrm{layer\ thickness}_{mm}}{\mathrm{scale}_{mm/m}}
 $$
 
 ### Nesting
 - Polygons are packed with bounding‑box packing.
-- Spacing uses $\text{kerf} + \text{part\_gap}$ to keep cuts from colliding.
+- Spacing uses $\mathrm{kerf} + \mathrm{part\ gap}$ to keep cuts from colliding.
 - Sheet margin is applied by reducing packable area and offsetting placements.
 
 ### Composite generation
