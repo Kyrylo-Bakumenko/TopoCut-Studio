@@ -15,6 +15,8 @@ from datetime import datetime
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.datastructures import Headers
+from starlette.responses import Response
 from pydantic import BaseModel
 
 from elevation_relief.main import run_pipeline
@@ -29,6 +31,24 @@ logger = logging.getLogger("api")
 
 app = FastAPI(title="Elevation Relief API")
 
+class CORSStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope) -> Response:
+        response = await super().get_response(path, scope)
+        headers = Headers(scope=scope)
+        origin = headers.get("origin")
+        allow_origin = None
+        if origin:
+            if "*" in origins:
+                allow_origin = "*"
+            elif origin in origins:
+                allow_origin = origin
+        if allow_origin:
+            response.headers.setdefault("Access-Control-Allow-Origin", allow_origin)
+            response.headers.setdefault("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+            response.headers.setdefault("Access-Control-Allow-Headers", "*")
+            response.headers.setdefault("Vary", "Origin")
+        return response
+
 # CORS for frontend (local + deployed)
 default_origins = [
     "http://localhost:5173",
@@ -39,7 +59,8 @@ cors_env = os.getenv("CORS_ORIGINS")
 if cors_env:
     origins = [o.strip() for o in cors_env.split(",") if o.strip()]
 else:
-    origins = default_origins
+    origins = []
+origins = sorted({*default_origins, *origins})
 
 app.add_middleware(
     CORSMiddleware,
@@ -148,7 +169,7 @@ async def list_jobs():
 # Assuming local development usage
 RESULTS_DIR = Path("results").resolve()
 RESULTS_DIR.mkdir(exist_ok=True)
-app.mount("/results", StaticFiles(directory=str(RESULTS_DIR)), name="results")
+app.mount("/results", CORSStaticFiles(directory=str(RESULTS_DIR)), name="results")
 
 @app.get("/jobs/{job_id}/files")
 async def get_job_files(job_id: str):
@@ -178,7 +199,7 @@ async def get_job_files(job_id: str):
     files = []
     # Walk directory
     for f in path.rglob("*"):
-        if f.is_file() and f.suffix.lower() in ['.png', '.jpg', '.svg', '.dxf']:
+        if f.is_file() and f.suffix.lower() in ['.png', '.jpg', '.svg', '.dxf', '.json']:
             # Create URL path
             # /results/experiment_name/subdir/file.ext
             file_rel = f.relative_to(RESULTS_DIR)
