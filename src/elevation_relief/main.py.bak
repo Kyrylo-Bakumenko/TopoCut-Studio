@@ -1,0 +1,224 @@
+import os
+import yaml
+import click
+import numpy as np
+from pathlib import Path
+from shapely.geometry import Polygon
+from shapely.affinity import scale, translate
+
+from elevation_relief.dataio.dem import fetch_dem
+from elevation_relief.dataio.imagery import fetch_imagery_stac
+from elevation_relief.dataio.utils import feature_bounds_from_center
+from elevation_relief.geometry.slicer import slice_terrain
+from elevation_relief.imagery.texture import generate_layer_texture
+from elevation_relief.export.dxf import save_to_dxf
+import rasterio
+
+@click.command()
+@click.option('--config', default='config/default_config.yaml', help='Path to config file')
+def main(config):
+    """
+    Run the Elevation Relief Pipeline.
+    """
+    # Load Config
+    with open(config, 'r') as f:
+        cfg = yaml.safe_load(f)
+        
+    print(f"Starting Experiment: {cfg['experiment']['name']}")
+    
+    # Setup Paths
+    res_dir = Path(cfg['experiment']['output_dir']) / cfg['experiment']['name']
+    res_dir.mkdir(parents=True, exist_ok=True)
+    (res_dir / 'vectors').mkdir(exist_ok=True)
+    (res_dir / 'textures').mkdir(exist_ok=True)
+    
+    # 1. Define ROI
+    lat = cfg['region']['center_lat']
+    lon = cfg['region']['center_lon']
+    rad = cfg['region']['radius_m']
+    bounds = feature_bounds_from_center(lat, lon, rad)
+    print(f"ROI Bounds: {bounds}")
+    
+    # 2. Fetch Data
+    print("Fetching DEM...")
+    dem_arr, dem_prof = fetch_dem(bounds, dem_name=cfg['data']['dem_source'])
+    
+    # Ensure DEM is 3D (Bands, Height, Width)
+    if len(dem_arr.shape) == 2:
+        dem_arr = dem_arr[np.newaxis, :, :]
+
+    # Save raw DEM for debugging
+    with rasterio.open(res_dir / 'raw_dem.tif', 'w', **dem_prof) as dst:
+        dst.write(dem_arr) # Write all bands
+        
+    print("Fetching Imagery...")
+    # Handle temporal range or just default
+    img_arr, img_prof = fetch_imagery_stac(
+        bounds, 
+        collection=cfg['data']['imagery_source']
+    )
+    
+    # Re-project Imagery to match DEM?
+    # dem_stitcher returns EPSG:4326 usually unless transformed?
+    # Actually dem_stitcher returns mostly 4326.
+    # We NEED a Projected CRS (UTM) for physical scaling.
+    # Step 2.5: Reproject to local UTM.
+    # TODO: Implement Reprojection.
+    # For MVP: We will treat degrees as Y, X and assume a conversion factor?
+    # NO. degrees varies. We MUST reproject.
+    
+    # Let's add a reprojection step using rasterio.warp
+    from rasterio.warp import calculate_default_transform, reproject, Resampling
+    from rasterio.crs import CRS
+    
+    # Estimate UTM zone
+    # utm_zone = int((lon + 180) / 6) + 1
+    # dst_crs = CRS.from_dict({'proj': 'utm', 'zone': utm_zone, 'ellps': 'WGS84'})
+    # Or simpler: EPSG:3857 (Web Mercator) - distorts scale at high lat, but conformal.
+    # Or local UTM.
+    # Let's use EPSG:3857 for simplicity in MVP, or try to auto-detect UTM.
+    
+    dst_crs = 'EPSG:3857' # Web Mercator (Meters-ish)
+    
+    print(f"Reprojecting to {dst_crs}...")
+    
+    # Reproject DEM
+    dem_reproj, dem_trans = _reproject_raster(dem_arr, dem_prof, dst_crs)
+    dem_prof_reproj = dem_prof.copy()
+    dem_prof_reproj.update({
+        'crs': dst_crs,
+        'transform': dem_trans,
+        'width': dem_reproj.shape[1],
+        'height': dem_reproj.shape[0]
+    })
+    
+    # Reproject Imagery
+    # img_arr is (Bands, H, W)
+    img_reproj, img_trans = _reproject_raster(img_arr, img_prof, dst_crs)
+    img_prof_reproj = img_prof.copy()
+    img_prof_reproj.update({
+        'crs': dst_crs,
+        'transform': img_trans,
+        'width': img_reproj.shape[2],
+        'height': img_reproj.shape[1]
+    })
+    
+    # 3. Slice Terrain
+    interval = cfg['model']['contour_interval_m']
+    print(f"Slicing Terrain at {interval}m intervals...")
+    
+    slices = slice_terrain(
+        dem_reproj[0], # band 1
+        dem_trans, 
+        interval_m=interval,
+        smoothing_sigma=cfg['processing'].get('smoothing_sigma', 0.5)
+    )
+    
+    print(f"Generated {len(slices)} layers.")
+    
+    # 4. Process & Export
+    # Calculate Scale Factor
+    # Target Width (mm)
+    target_width_mm = cfg['model']['width_inches'] * 25.4
+    
+    # Real Width (m)
+    # bounds of the reproj raster
+    height_px, width_px = dem_reproj.shape[1], dem_reproj.shape[2]
+    real_width_m = width_px * dem_trans.a # pixel width
+    
+    # Scale: Metres -> Millimeters 
+    # Global Scale Factor S = (Target mm) / (Real m)
+    # But wait, coordinates in shapely are in Meters (from Web Mercator).
+    # So we map Meters -> Millimeters.
+    # Usually Meters * 1000 = mm.
+    # But we want to Shrink fit to table.
+    # Scale Factor = Target_Width_mm / Real_Width_m
+    
+    scale_factor = target_width_mm / real_width_m
+    print(f"Scale Factor: {scale_factor:.4f} (1m = {scale_factor}mm on table)")
+    
+    # Need to verify if 'transform' uses meters. EPSG:3857 uses meters.
+    
+    # Center params for Scaling (Scale around center)
+    center_x = dem_trans.c + (width_px * dem_trans.a) / 2
+    center_y = dem_trans.f + (height_px * dem_trans.e) / 2
+    
+    # Prepare Imagery Dataset for Masking
+    # We need a DatasetReader-like object for rasterio.mask
+    # We can use MemoryFile
+    from rasterio.io import MemoryFile
+    
+    with MemoryFile() as memfile:
+        with memfile.open(**img_prof_reproj) as dataset:
+            dataset.write(img_reproj)
+            
+            for i, (elev, polys) in enumerate(sorted(slices.items())):
+                layer_id = f"layer_{i:03d}_elev_{int(elev)}"
+                print(f"Processing {layer_id}...")
+                
+                # A. Texture (Masking using Original Coordinates in Meters)
+                # We do this BEFORE scaling the polygons, because the imagery is in Meters.
+                texture_img = generate_layer_texture(dataset, polys)
+                
+                # Save Texture
+                tex_path = res_dir / 'textures' / f"{layer_id}.png"
+                texture_img.save(tex_path)
+                
+                # B. Geometry (Scale to model size)
+                scaled_polys = []
+                for p in polys:
+                    # Scale (origin=center to preserve relative alignment of layers)
+                    # origin=(center_x, center_y) ensures all layers shrink towards the same point
+                    sp = scale(p, xfact=scale_factor, yfact=scale_factor, origin=(center_x, center_y))
+                    scaled_polys.append(sp)
+                
+                # Save Vector
+                vec_path = res_dir / 'vectors' / f"{layer_id}.dxf"
+                save_to_dxf(scaled_polys, str(vec_path))
+                
+    print("Done! Check results in", res_dir)
+
+def _reproject_raster(src_arr, src_prof, dst_crs):
+    """
+    Reproject raster array to destination CRS.
+    """
+    from rasterio.warp import calculate_default_transform, reproject, Resampling
+    
+    dst_crs_obj = rasterio.crs.CRS.from_string(dst_crs)
+    src_crs = src_prof['crs']
+    width = src_prof['width']
+    height = src_prof['height']
+    left = src_prof['transform'].c
+    bottom = src_prof['transform'].f + src_prof['transform'].e * height
+    right = src_prof['transform'].c + src_prof['transform'].a * width
+    top = src_prof['transform'].f
+    
+    transform, width, height = calculate_default_transform(
+        src_crs, dst_crs_obj, width, height, left, bottom, right, top
+    )
+    
+    kwargs = src_prof.copy()
+    kwargs.update({
+        'crs': dst_crs_obj,
+        'transform': transform,
+        'width': width,
+        'height': height
+    })
+    
+    dst_arr = np.zeros((src_arr.shape[0], height, width), dtype=src_arr.dtype)
+    
+    for i in range(src_arr.shape[0]):
+        reproject(
+            source=src_arr[i],
+            destination=dst_arr[i],
+            src_transform=src_prof['transform'],
+            src_crs=src_crs,
+            dst_transform=transform,
+            dst_crs=dst_crs_obj,
+            resampling=Resampling.bilinear
+        )
+        
+    return dst_arr, transform
+
+if __name__ == '__main__':
+    main()

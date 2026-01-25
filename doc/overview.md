@@ -1,0 +1,48 @@
+# Elevation Relief: Laser Cutting Pipeline
+
+## Overview
+This project provides an automated pipeline to generate laser-cut topographic relief maps from Digital Elevation Models (DEMs) and satellite imagery. 
+
+The goal is to input a geographic coordinate and a radius, and output:
+1.  **Vector Cut Files (DXF/SVG)**: Precise contours sliced at specific elevation intervals.
+2.  **Raster Engraving Files (PNG)**: Aerial imagery masked to each layer, ready for laser engraving to provide texture.
+
+## Architecture
+
+### `src/elevation_relief/`
+- **`dataio/`**: Modules for fetching data from USGS 3DEP, NAIP, and Global sources (Planetary Computer, OpenTopography). Uses `dem-stitcher` for seamless datum handling.
+- **`geometry/`**: Core logic for slicing 3D terrain into 2D layers. Uses `skimage.measure.find_contours` (Marching Squares) for smooth organic curves, avoiding pixelated edges.
+- **`imagery/`**: Handling of satellite imagery, including clipping to vector masks, grayscale conversion, and dithering for laser engraving.
+- **`export/`**: Formatting final outputs (DXF R12, optimized Order of Operations via `vpype`).
+
+### `config/`
+- **`default_config.yaml`**: Default parameters for resolution, layer thickness, and material sizing.
+
+## Usage
+1.  **Install Environment**:
+    ```bash
+    conda env create -f environment.yml
+    conda activate elevation-relief
+    ```
+    *(Note: If `dem-stitcher` fails to install via conda, use `pip install dem-stitcher` inside the environment)*
+
+2.  **Configure**:
+    Edit `config/default_config.yaml` to set your target coordinates (Lat/Lon) and physical model size.
+
+3.  **Run**:
+    ```bash
+    chmod +x run.sh
+    ./run.sh
+    ```
+    Or run manually:
+    ```bash
+    export PYTHONPATH=$PYTHONPATH:$(pwd)/src
+    python src/elevation_relief/main.py --config config/default_config.yaml
+    ```
+
+4.  **Results**:
+    Check the `results/` folder for your laser-ready DXF and PNG files.
+
+## Dependencies
+See `environment.yml` for the Conda environment specification.
+Key libraries: `dem-stitcher`, `rasterio`, `shapely`, `skimage`, `ezdxf`, `vpype`.

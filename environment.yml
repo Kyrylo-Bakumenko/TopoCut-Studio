@@ -1,0 +1,35 @@
+name: elevation-relief
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - gdal
+  - rasterio
+  - shapely
+  - fiona
+  - pyproj
+  - geopandas
+  - numpy
+  - scipy
+  - scikit-image
+  - pillow
+  - requests
+  - pyyaml
+  - click
+  - rich
+  - tqdm
+  - pytest
+  - ezdxf
+  - fastapi
+  - uvicorn
+  - pydantic
+  # Search & Access
+  - pystac-client
+  - planetary-computer
+  # DEM Stitching (might be pip only in some contexts, but let's try conda-forge first or pip strictly)
+  - pip
+  - pip:
+    - dem-stitcher
+    - vpype # vpype is often best installed via pip or pipx, but here pip in conda is okay
+    - opencv-python-headless # sometimes needed if skimage deps are weird, but skimage covers most

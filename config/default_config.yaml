@@ -1,0 +1,36 @@
+# Elevation Relief Configuration
+
+experiment:
+  name: "test_run_01"
+  output_dir: "results"
+
+region:
+  # Example: 44.270566, -71.303254 (Mt Washington)
+  center_lat: 44.270566
+  center_lon: -71.303254
+  radius_m: 2000
+
+# Physical Output Parameters
+model:
+  width_inches: 5.0
+  height_inches: 5.0 # If purely circular/square, these might be same
+  
+  # Layer Thickness - Determines vertical step
+  # E.g. 1/8 inch plywood ~ 3mm. 
+  # If 3mm represents 100m elevation, vertical exaggeration is implicit.
+  # OR define explicit contour interval in meters.
+  layer_thickness_mm: 3.175 # 1/8 inch
+  contour_interval_m: 50.0  # Vertical step between layers in real world meters
+
+data:
+  dem_source: "glo_30" # Options: glo_30, 3dep (if US)
+  imagery_source: "naip" # Options: naip (US), sentinel2 (Global)
+
+processing:
+  smoothing_sigma: 1.0 # Gaussian blur sigma for DEM before contouring
+  simplification_tol: 0.5 # Shapely simplify tolerance
+  kerf_width_mm: 0.15   # Laser kerf compensation
+
+export:
+  format: "dxf" # dxf or svg
+  layers_per_file: 1 # 1 = separate file per layer, 0 = all in one

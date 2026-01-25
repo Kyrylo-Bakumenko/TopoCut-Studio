@@ -1,0 +1,29 @@
+# python
+__pycache__/
+*.py[cod]
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+.env
+.env.*
+
+# node
+node_modules/
+**/node_modules/
+**/dist/
+**/build/
+
+# outputs
+results/
+
+# ide/os
+.DS_Store
+.vscode/
+
+# notebooks
+.ipynb_checkpoints/
+
+# logs
+*.log

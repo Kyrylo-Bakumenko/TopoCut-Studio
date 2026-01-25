@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "elevation-relief"
+version = "0.1.0"
+authors = [
+  { name="GitHub Copilot", email="copilot@github.com" },
+]
+description = "Topographic Laser Cutting Pipeline"
+readme = "doc/overview.md"
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "click",
+    "numpy",
+    "rasterio",
+    "shapely",
+    "scipy",
+    "ezdxf",
+    "Pillow",
+    "pystac-client",
+    "planetary-computer",
+    "dem-stitcher",
+    "pyyaml"
+]
+
+  [project.optional-dependencies]
+  dev = [
+    "ruff",
+    "black"
+  ]
+
+[project.scripts]
+elevation-relief = "elevation_relief.main:main"
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]

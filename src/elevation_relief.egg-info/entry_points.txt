@@ -1,0 +1,2 @@
+[console_scripts]
+elevation-relief = elevation_relief.main:main
