@@ -2,7 +2,7 @@
 
 Generates laser‑cuttable elevation relief models from DEM + satellite imagery. It builds layered contour vectors, nests them onto sheet layouts, and produces preview textures plus composite sheets that overlay raster textures with vector outlines for verification before cutting.
 
-## What it does (short)
+## What it does
 - Fetches DEM + imagery for a selected region.
 - Slices terrain into contour layers.
 - Exports per‑layer DXF vectors and textures.
