@@ -30,31 +30,6 @@ From src/web/ui:
    - Nested Sheets (vector SVG + DXF)
    - Composite Sheets (texture + vector overlay)
 
-## Deployment (free‑tier long‑term)
-
-### Frontend: Cloudflare Pages
-1. Create a Pages project from this repo.
-2. Set the build settings:
-  - Root directory: `src/web/ui`
-  - Build command: `npm run build`
-  - Output directory: `dist`
-3. Add an environment variable for the API base URL, for example:
-  - `VITE_API_URL=https://<your-render-api>.onrender.com`
-
-### Backend: Render (Free Web Service)
-1. Create a new Web Service from this repo.
-2. Set the service root to the project root.
-3. Build command:
-  - `pip install -e .`
-4. Start command:
-  - `uvicorn src.web.api.main:app --host 0.0.0.0 --port $PORT`
-5. Set environment variables (if needed):
-  - `PYTHONUNBUFFERED=1`
-
-Notes:
-- Render free services sleep on inactivity; expect a cold‑start delay.
-- For persistent results, use object storage (R2/S3) or a paid disk.
-
 ### Outputs (results/)
 Each job writes to:
 ```
