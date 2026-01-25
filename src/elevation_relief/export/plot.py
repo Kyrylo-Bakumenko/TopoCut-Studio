@@ -24,6 +24,9 @@ def save_polygons_plot(polygons: List[Polygon], filename: str, sheet_width_mm: f
     ax.set_ylim(0, sheet_height_mm)
     ax.set_aspect('equal')
     ax.axis('off') # Hide axes
+    ax.margins(0)
+    ax.set_position([0, 0, 1, 1])
+    fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
     
     # Add rectangle for sheet border
     rect = plt.Rectangle((0, 0), sheet_width_mm, sheet_height_mm, 
@@ -47,8 +50,7 @@ def save_polygons_plot(polygons: List[Polygon], filename: str, sheet_width_mm: f
                 x, y = p.exterior.xy
                 ax.fill(x, y, alpha=0.5, fc='steelblue', ec='black')
 
-    plt.tight_layout(pad=0)
-    plt.savefig(filename, dpi=150, bbox_inches='tight', pad_inches=0.1)
+    plt.savefig(filename, dpi=150, bbox_inches=None, pad_inches=0)
     plt.close(fig)
 
 

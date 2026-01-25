@@ -17,6 +17,7 @@ interface LayerStackPreviewProps {
   gapMm: number;
   activeLayerId?: string | null;
   minHighlightGapMm?: number;
+  heightPx?: number;
 }
 
 type MaskTextures = {
@@ -295,6 +296,7 @@ export default function LayerStackPreview({
   gapMm,
   activeLayerId = null,
   minHighlightGapMm = 5,
+  heightPx = 420,
 }: LayerStackPreviewProps) {
   const thicknessIn = thicknessMm / 25.4;
   const gapIn = Math.max(0, gapMm) / 25.4;
@@ -317,7 +319,7 @@ export default function LayerStackPreview({
   });
 
   return (
-    <div style={{ height: 420, width: '100%', background: '#0f172a', borderRadius: 8 }}>
+    <div style={{ height: heightPx, width: '100%', background: '#0f172a', borderRadius: 8 }}>
       <Canvas camera={{ position: [0, 3, 6], fov: 45, near: 0.01, far: 100 }}>
         <ambientLight intensity={0.6} />
         <directionalLight position={[5, 8, 5]} intensity={0.8} />
