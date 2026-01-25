@@ -3,6 +3,7 @@ import asyncio
 import logging
 import traceback
 import warnings
+import os
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
@@ -28,11 +29,17 @@ logger = logging.getLogger("api")
 
 app = FastAPI(title="Elevation Relief API")
 
-# CORS for Vite Frontend (usually runs on port 5173)
-origins = [
-    "http://localhost:5173", 
-    "http://127.0.0.1:5173"
+# CORS for frontend (local + deployed)
+default_origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "https://topocut-studio.pages.dev",
 ]
+cors_env = os.getenv("CORS_ORIGINS")
+if cors_env:
+    origins = [o.strip() for o in cors_env.split(",") if o.strip()]
+else:
+    origins = default_origins
 
 app.add_middleware(
     CORSMiddleware,
