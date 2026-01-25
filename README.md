@@ -30,6 +30,31 @@ From src/web/ui:
    - Nested Sheets (vector SVG + DXF)
    - Composite Sheets (texture + vector overlay)
 
+## Deployment (free‑tier long‑term)
+
+### Frontend: Cloudflare Pages
+1. Create a Pages project from this repo.
+2. Set the build settings:
+  - Root directory: `src/web/ui`
+  - Build command: `npm run build`
+  - Output directory: `dist`
+3. Add an environment variable for the API base URL, for example:
+  - `VITE_API_URL=https://<your-render-api>.onrender.com`
+
+### Backend: Render (Free Web Service)
+1. Create a new Web Service from this repo.
+2. Set the service root to the project root.
+3. Build command:
+  - `pip install -e .`
+4. Start command:
+  - `uvicorn src.web.api.main:app --host 0.0.0.0 --port $PORT`
+5. Set environment variables (if needed):
+  - `PYTHONUNBUFFERED=1`
+
+Notes:
+- Render free services sleep on inactivity; expect a cold‑start delay.
+- For persistent results, use object storage (R2/S3) or a paid disk.
+
 ### Outputs (results/)
 Each job writes to:
 ```
@@ -64,16 +89,16 @@ results/{experiment_name}_{job_id[:8]}/
 The model scale is derived from the user’s width and selected radius. The contour interval is tied to layer thickness so physical layers match vertical elevation steps:
 
 $$
-\text{scale}_{mm/m} = \frac{\text{width}_{mm}}{2 \cdot \text{radius}_{m}}
+\mathrm{scale}_{mm/m} = \frac{\mathrm{width}_{mm}}{2 \cdot \mathrm{radius}_{m}}
 $$
 
 $$
-\text{contour\_interval}_{m} = \frac{\text{layer\_thickness}_{mm}}{\text{scale}_{mm/m}}
+\mathrm{contour\ interval}_{m} = \frac{\mathrm{layer\ thickness}_{mm}}{\mathrm{scale}_{mm/m}}
 $$
 
 ### Nesting
 - Polygons are packed with bounding‑box packing.
-- Spacing uses $\text{kerf} + \text{part\_gap}$ to keep cuts from colliding.
+- Spacing uses $\mathrm{kerf} + \mathrm{part\ gap}$ to keep cuts from colliding.
 - Sheet margin is applied by reducing packable area and offsetting placements.
 
 ### Composite generation
