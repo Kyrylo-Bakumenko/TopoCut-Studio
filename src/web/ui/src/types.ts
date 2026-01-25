@@ -67,3 +67,7 @@ export interface JobFile {
   url: string;
   category: string;
 }
+
+export interface JobConfigResponse {
+  config: PipelineConfig;
+}

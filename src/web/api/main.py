@@ -67,6 +67,7 @@ class JobInfo(BaseModel):
     config_summary: str = ""
 
 jobs: Dict[str, JobInfo] = {}
+job_configs: Dict[str, dict] = {}
 
 def run_job_wrapper(job_id: str, config: dict):
     """
@@ -119,6 +120,7 @@ async def submit_job(config: PipelineConfig, background_tasks: BackgroundTasks):
         config_summary=config_summary
     )
     jobs[job_id] = job_info
+    job_configs[job_id] = cfg_dict
     
     # Running in threadpool to avoid blocking event loop
     background_tasks.add_task(run_job_wrapper, job_id, cfg_dict)
@@ -130,6 +132,12 @@ async def get_job_status(job_id: str):
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Job not found")
     return jobs[job_id]
+
+@app.get("/jobs/{job_id}/config")
+async def get_job_config(job_id: str):
+    if job_id not in job_configs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"config": job_configs[job_id]}
 
 @app.get("/jobs", response_model=Dict[str, JobInfo])
 async def list_jobs():
