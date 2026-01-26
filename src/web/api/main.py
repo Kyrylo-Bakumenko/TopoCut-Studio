@@ -72,6 +72,7 @@ class JobStatus(str, Enum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELED = "canceled"
 
 class JobInfo(BaseModel):
     id: str
@@ -85,6 +86,11 @@ class JobInfo(BaseModel):
 
 jobs: Dict[str, JobInfo] = {}
 job_configs: Dict[str, dict] = {}
+job_cancelled: Dict[str, bool] = {}
+
+
+class JobCancelledError(Exception):
+    pass
 
 def run_job_wrapper(job_id: str, config: dict):
     """
@@ -96,6 +102,8 @@ def run_job_wrapper(job_id: str, config: dict):
     
     def update_progress(pct: int, msg: str):
         if job_id in jobs:
+            if job_cancelled.get(job_id):
+                raise JobCancelledError()
             jobs[job_id].progress = pct
             jobs[job_id].message = msg
             logger.info(f"Job {job_id}: [{pct}%] {msg}")
@@ -108,6 +116,11 @@ def run_job_wrapper(job_id: str, config: dict):
         jobs[job_id].progress = 100
         jobs[job_id].message = "Completed Successfully"
         logger.info(f"Job {job_id} Completed. Results at {result_dir}")
+    except JobCancelledError:
+        jobs[job_id].status = JobStatus.CANCELED
+        jobs[job_id].message = "Canceled"
+        jobs[job_id].progress = 0
+        logger.info(f"Job {job_id} Canceled")
     except Exception as e:
         logger.error(f"Job {job_id} Failed: {e}")
         traceback.print_exc()
@@ -138,11 +151,24 @@ async def submit_job(config: PipelineConfig, background_tasks: BackgroundTasks):
     )
     jobs[job_id] = job_info
     job_configs[job_id] = cfg_dict
+    job_cancelled[job_id] = False
     
     # Running in threadpool to avoid blocking event loop
     background_tasks.add_task(run_job_wrapper, job_id, cfg_dict)
     
     return job_info
+
+
+@app.post("/jobs/{job_id}/cancel")
+async def cancel_job(job_id: str):
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    job = jobs[job_id]
+    if job.status in {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELED}:
+        return {"status": job.status, "message": "Job already finished."}
+    job_cancelled[job_id] = True
+    job.message = "Canceling..."
+    return {"status": job.status, "message": "Cancel requested."}
 
 @app.get("/jobs/{job_id}", response_model=JobInfo)
 async def get_job_status(job_id: str):

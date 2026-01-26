@@ -20,6 +20,7 @@ import {
   Tag,
   Badge,
   Popover,
+  Popconfirm,
   ConfigProvider,
   theme,
 } from 'antd';
@@ -30,7 +31,7 @@ import {
   SyncOutlined,
   SettingOutlined,
 } from '@ant-design/icons';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import MapSelector from './components/MapSelector';
 import JobResultsPanel from './components/JobResultsPanel';
@@ -83,6 +84,8 @@ function getStatusIcon(status: string) {
       return <CheckCircleOutlined style={{ color: '#52c41a' }} />;
     case 'failed':
       return <CloseCircleOutlined style={{ color: '#ff4d4f' }} />;
+    case 'canceled':
+      return <CloseCircleOutlined style={{ color: '#94a3b8' }} />;
     case 'running':
       return <SyncOutlined spin style={{ color: '#1890ff' }} />;
     case 'pending':
@@ -98,6 +101,8 @@ function getStatusTag(status: string) {
       return <Tag color="success">Completed</Tag>;
     case 'failed':
       return <Tag color="error">Failed</Tag>;
+    case 'canceled':
+      return <Tag>Cancelled</Tag>;
     case 'running':
       return <Tag color="processing">Running</Tag>;
     case 'pending':
@@ -109,6 +114,7 @@ function getStatusTag(status: string) {
 
 function App() {
   const [form] = Form.useForm<PipelineConfig>();
+  const queryClient = useQueryClient();
   const [jobHistory, setJobHistory] = useState<string[]>([]);
   const [expandedJobs, setExpandedJobs] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState('map');
@@ -166,6 +172,28 @@ function App() {
 
   const parseCoord = (value?: string) => value?.replace(/[^\d.-]/g, '') ?? '';
 
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('elevation-relief.jobHistory');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          setJobHistory(parsed);
+        }
+      }
+    } catch (err) {
+      // ignore malformed storage
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('elevation-relief.jobHistory', JSON.stringify(jobHistory));
+    } catch (err) {
+      // ignore storage errors
+    }
+  }, [jobHistory]);
+
   // mutation: submit job
   const submitJob = useMutation({
     mutationFn: async (values: PipelineConfig) => {
@@ -173,14 +201,35 @@ function App() {
       return res.data as JobInfo;
     },
     onSuccess: (data) => {
+      queryClient.setQueriesData({ queryKey: ['allJobs'] }, (oldData) => {
+        if (!oldData || typeof oldData !== 'object') {
+          return { [data.id]: data } as Record<string, JobInfo>;
+        }
+        return { ...(oldData as Record<string, JobInfo>), [data.id]: data };
+      });
       setJobHistory((prev) => [data.id, ...prev]);
       setExpandedJobs((prev) => (prev.includes(data.id) ? prev : [data.id, ...prev]));
       setActiveTab('jobs');
     },
   });
 
+  const cancelJob = useMutation({
+    mutationFn: async (jobId: string) => {
+      const res = await axios.post(`${API_URL}/jobs/${jobId}/cancel`);
+      return res.data as { status: string; message: string };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['allJobs'] });
+    },
+  });
+
+  const handleDeleteJob = (jobId: string) => {
+    setJobHistory((prev) => prev.filter((id) => id !== jobId));
+    setExpandedJobs((prev) => prev.filter((id) => id !== jobId));
+  };
+
   // query: get all jobs status (for polling running jobs)
-  const { data: allJobs } = useQuery({
+  const { data: allJobs, isError: allJobsError } = useQuery({
     queryKey: ['allJobs', jobHistory],
     queryFn: async () => {
       const res = await axios.get(`${API_URL}/jobs`);
@@ -626,8 +675,35 @@ function App() {
 
               {isRunning && currentRunningJob && (
                 <div style={{ marginTop: 16 }}>
-                  <Progress percent={currentRunningJob.progress} status="active" />
-                  <Typography.Text type="secondary">{currentRunningJob.message}</Typography.Text>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Progress percent={currentRunningJob.progress} status="active" style={{ flex: 1 }} />
+                    <Popconfirm
+                      title="Cancel this job?"
+                      description="This will stop processing and no outputs will be produced."
+                      okText="Cancel"
+                      cancelText="Keep running"
+                      onConfirm={() => cancelJob.mutate(currentRunningJob.id)}
+                    >
+                      <Button
+                        aria-label="Cancel job"
+                        type="text"
+                        danger
+                        size="small"
+                        icon={<CloseCircleOutlined />}
+                      />
+                    </Popconfirm>
+                  </div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                    }}
+                  >
+                    <Typography.Text type="secondary">{currentRunningJob.message}</Typography.Text>
+                    <span />
+                  </div>
                 </div>
               )}
 
@@ -636,6 +712,14 @@ function App() {
                   type="error"
                   title="Submission Failed"
                   description={submitJob.error.message}
+                  style={{ marginTop: 16 }}
+                />
+              )}
+              {allJobsError && (
+                <Alert
+                  type="warning"
+                  title="Job status unavailable"
+                  description="Unable to fetch job status from the backend. Results will appear once the connection resumes."
                   style={{ marginTop: 16 }}
                 />
               )}
@@ -655,12 +739,7 @@ function App() {
               tabBarExtraContent={{
                 right: (
                   <Popover content={settingsContent} title="Settings" trigger="click">
-                    <Button
-                      aria-label="Settings"
-                      icon={<SettingOutlined />}
-                      type="text"
-                      size="small"
-                    />
+                    <Button aria-label="Settings" icon={<SettingOutlined />} type="text" size="small" />
                   </Popover>
                 ),
               }}
@@ -682,6 +761,7 @@ function App() {
                           lon={lon}
                           radius={radius}
                           setCoords={handleMapCoords}
+                          isActive={activeTab === 'map'}
                         />
                       </div>
                     </div>
@@ -702,60 +782,118 @@ function App() {
                         <Collapse
                           activeKey={expandedJobs}
                           onChange={handleCollapseChange}
-                          items={jobHistory
-                            .map((jId, idx) => {
-                              const job = allJobs?.[jId];
-                              if (!job) return null;
+                          items={jobHistory.map((jId, idx) => {
+                            const job = allJobs?.[jId];
+                            const displayJob: JobInfo =
+                              job ??
+                              ({
+                                id: jId,
+                                status: 'pending',
+                                progress: 0,
+                                message: 'Fetching status...',
+                                result_path: null,
+                                error: null,
+                                created_at: '',
+                                config_summary: 'Fetching status...',
+                              } as JobInfo);
 
-                              return {
-                                key: jId,
-                                label: (
-                                  <div
-                                    style={{
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: 12,
-                                      width: '100%',
-                                    }}
-                                  >
-                                    {getStatusIcon(job.status)}
-                                    <span style={{ fontWeight: 500 }}>
-                                      Run #{jobHistory.length - idx}
-                                    </span>
-                                    <Text type="secondary" style={{ fontSize: 12 }}>
-                                      {formatTime(job.created_at)}
-                                    </Text>
-                                    <Text type="secondary" style={{ fontSize: 12 }}>
-                                      • {job.config_summary}
-                                    </Text>
-                                    <div style={{ marginLeft: 'auto' }}>
-                                      {getStatusTag(job.status)}
-                                    </div>
+                            return {
+                              key: jId,
+                              label: (
+                                <div
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 12,
+                                    width: '100%',
+                                  }}
+                                >
+                                  {getStatusIcon(displayJob.status)}
+                                  <span style={{ fontWeight: 500 }}>
+                                    Run #{jobHistory.length - idx}
+                                  </span>
+                                  <Text type="secondary" style={{ fontSize: 12 }}>
+                                    {formatTime(displayJob.created_at)}
+                                  </Text>
+                                  <Text type="secondary" style={{ fontSize: 12 }}>
+                                    • {displayJob.config_summary}
+                                  </Text>
+                                  <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                                    {displayJob.status !== 'running' &&
+                                      displayJob.status !== 'pending' && (
+                                        <Popconfirm
+                                          title="Remove this job from history?"
+                                          okText="Remove"
+                                          cancelText="Keep"
+                                          onConfirm={() => handleDeleteJob(displayJob.id)}
+                                        >
+                                          <Button
+                                            aria-label="Remove job"
+                                            type="text"
+                                            size="small"
+                                            icon={<CloseCircleOutlined />}
+                                          />
+                                        </Popconfirm>
+                                      )}
+                                    {getStatusTag(displayJob.status)}
                                   </div>
-                                ),
-                                children: (
-                                  <div>
-                                    {job.status === 'running' || job.status === 'pending' ? (
-                                      <div style={{ padding: 20 }}>
-                                        <Progress percent={job.progress} status="active" />
-                                        <Typography.Text type="secondary">
-                                          {job.message}
-                                        </Typography.Text>
+                                </div>
+                              ),
+                              children: (
+                                <div>
+                                  {displayJob.status === 'running' ||
+                                  displayJob.status === 'pending' ? (
+                                    <div style={{ padding: 20 }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <Progress
+                                          percent={displayJob.progress}
+                                          status="active"
+                                          style={{ flex: 1 }}
+                                        />
+                                        <Popconfirm
+                                          title="Cancel this job?"
+                                          description="This will stop processing and no outputs will be produced."
+                                          okText="Cancel"
+                                          cancelText="Keep running"
+                                          onConfirm={() => cancelJob.mutate(displayJob.id)}
+                                        >
+                                          <Button
+                                            aria-label="Cancel job"
+                                            type="text"
+                                            danger
+                                            size="small"
+                                            icon={<CloseCircleOutlined />}
+                                          />
+                                        </Popconfirm>
                                       </div>
-                                    ) : job.status === 'failed' ? (
-                                      <Alert
-                                        type="error"
-                                        title="Job Failed"
-                                        description={job.error}
-                                      />
-                                    ) : job.status === 'completed' ? (
-                                      <JobResultsPanel jobId={jId} isCompleted={true} />
-                                    ) : null}
-                                  </div>
-                                ),
-                              };
-                            })
-                            .filter((item): item is NonNullable<typeof item> => item !== null)}
+                                      <div
+                                        style={{
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'space-between',
+                                          gap: 12,
+                                        }}
+                                      >
+                                        <Typography.Text type="secondary">
+                                          {displayJob.message}
+                                        </Typography.Text>
+                                        <span />
+                                      </div>
+                                    </div>
+                                  ) : displayJob.status === 'failed' ? (
+                                    <Alert type="error" title="Job Failed" description={displayJob.error} />
+                                  ) : displayJob.status === 'canceled' ? (
+                                    <Alert type="info" title="Job Canceled" description="Canceled by user." />
+                                  ) : (
+                                    <JobResultsPanel
+                                      jobId={displayJob.id}
+                                      isCompleted={displayJob.status === 'completed'}
+                                    />
+                                  )}
+                                </div>
+                              ),
+                            };
+                          })}
                         />
                       )}
                     </div>
