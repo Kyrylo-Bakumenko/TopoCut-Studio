@@ -17,6 +17,7 @@ import {
 } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
+import { useTexture } from '@react-three/drei';
 import LayerStackPreview from './LayerStackPreview';
 import type { JobFile, JobConfigResponse, SheetManifest, SheetCutout } from '../types';
 
@@ -123,6 +124,13 @@ export default function JobResultsPanel({ jobId, isCompleted }: JobResultsPanelP
       elevation: elev,
     };
   });
+
+  useEffect(() => {
+    if (layerTextures.length === 0) return;
+    layerTextures.forEach((layer) => {
+      useTexture.preload(layer.url);
+    });
+  }, [layerTextures]);
 
   const sheetManifestMap = useMemo(() => {
     const map = new Map<string, SheetManifest>();

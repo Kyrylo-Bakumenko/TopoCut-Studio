@@ -21,6 +21,7 @@ interface MapSelectorProps {
   lon: number;
   radius: number;
   setCoords: (lat: number, lon: number) => void;
+  isActive?: boolean;
 }
 
 // Handle map click events
@@ -75,7 +76,19 @@ const MapController: React.FC<{
   return null;
 };
 
-const MapSelector: React.FC<MapSelectorProps> = ({ lat, lon, radius, setCoords }) => {
+const MapResizeHandler: React.FC<{ isActive: boolean }> = ({ isActive }) => {
+  const map = useMap();
+  useEffect(() => {
+    if (!isActive) return;
+    const id = window.setTimeout(() => {
+      map.invalidateSize();
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [isActive, map]);
+  return null;
+};
+
+const MapSelector: React.FC<MapSelectorProps> = ({ lat, lon, radius, setCoords, isActive }) => {
   // ref to skip recentering when user clicks/drags/zooms
   const skipRecenterRef = useRef(false);
 
@@ -102,6 +115,7 @@ const MapSelector: React.FC<MapSelectorProps> = ({ lat, lon, radius, setCoords }
       />
       <LocationMarker setCoords={setCoords} onInteractionStart={handleInteractionStart} />
       <MapController lat={lat} lon={lon} skipRecenterRef={skipRecenterRef} />
+      <MapResizeHandler isActive={!!isActive} />
       <Circle
         center={[lat, lon]}
         radius={radius}
