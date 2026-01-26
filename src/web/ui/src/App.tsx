@@ -7,6 +7,8 @@ import {
   Button,
   Card,
   Typography,
+  Row,
+  Col,
   Space,
   Alert,
   Select,
@@ -39,6 +41,9 @@ const { Title, Text } = Typography;
 const { Option } = Select;
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
+const GEOCODE_URL =
+  import.meta.env.VITE_GEOCODE_URL ?? 'https://nominatim.openstreetmap.org/search';
+const COORD_DECIMALS = 5;
 
 const DEFAULT_CONFIG: PipelineConfig = {
   experiment: { name: 'web_run_01', output_dir: 'results' },
@@ -108,6 +113,8 @@ function App() {
   const [expandedJobs, setExpandedJobs] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState('map');
   const [isDarkMode, setIsDarkMode] = useState(true);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   // tracks which input should drive derived updates
   const lastEditedRef = useRef<'radius' | 'contour'>('radius');
   // guards against feedback loops during form sync
@@ -148,6 +155,16 @@ function App() {
       window.clearInterval(intervalId);
     };
   }, []);
+  const formatCoord = (value?: string | number) => {
+    if (value === undefined || value === null || value === '') return '';
+    const num = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(num)) return '';
+    const factor = 10 ** COORD_DECIMALS;
+    const truncated = Math.trunc(num * factor) / factor;
+    return truncated.toFixed(COORD_DECIMALS);
+  };
+
+  const parseCoord = (value?: string) => value?.replace(/[^\d.-]/g, '') ?? '';
 
   // mutation: submit job
   const submitJob = useMutation({
@@ -199,6 +216,43 @@ function App() {
         center_lon: newLon,
       },
     });
+  };
+
+  const handleSearchLocation = async (query: string) => {
+    if (!query.trim()) return;
+    setSearchLoading(true);
+    setSearchError(null);
+    try {
+      const params = new URLSearchParams({
+        format: 'json',
+        q: query.trim(),
+        limit: '1',
+      });
+      const res = await fetch(`${GEOCODE_URL}?${params.toString()}`, {
+        headers: { 'Accept-Language': 'en' },
+      });
+      if (!res.ok) {
+        throw new Error(`Search failed (${res.status})`);
+      }
+      const data = await res.json();
+      if (!Array.isArray(data) || data.length === 0) {
+        setSearchError('No results found. Try a different query.');
+        return;
+      }
+      const result = data[0];
+      const newLat = Number(result.lat);
+      const newLon = Number(result.lon);
+      if (!Number.isFinite(newLat) || !Number.isFinite(newLon)) {
+        setSearchError('Search returned invalid coordinates.');
+        return;
+      }
+      handleMapCoords(newLat, newLon);
+      setActiveTab('map');
+    } catch (err) {
+      setSearchError('Unable to search location. Please try again.');
+    } finally {
+      setSearchLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -370,25 +424,61 @@ function App() {
               disabled={!!isRunning}
             >
               <Card title="Region" size="small" style={{ marginBottom: 16 }}>
-                <Space>
-                  <Form.Item
-                    name={['region', 'center_lat']}
-                    label="Latitude"
-                    rules={[{ required: true }]}
-                  >
-                    <InputNumber step={0.0001} style={{ width: 110 }} />
-                  </Form.Item>
-                  <Form.Item
-                    name={['region', 'center_lon']}
-                    label="Longitude"
-                    rules={[{ required: true }]}
-                  >
-                    <InputNumber step={0.0001} style={{ width: 110 }} />
-                  </Form.Item>
-                </Space>
-                <Form.Item name={['region', 'radius_m']} label="Radius (m)">
-                  <InputNumber step={100} style={{ width: '100%' }} />
+                <Form.Item label="Search location">
+                  <Input.Search
+                    placeholder="Search a place or address"
+                    allowClear
+                    enterButton="Search"
+                    loading={searchLoading}
+                    onSearch={handleSearchLocation}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        event.stopPropagation();
+                      }
+                    }}
+                  />
+                  {searchError && (
+                    <Typography.Text type="danger" style={{ fontSize: 12 }}>
+                      {searchError}
+                    </Typography.Text>
+                  )}
                 </Form.Item>
+                <Row gutter={[8, 0]}>
+                  <Col span={8}>
+                    <Form.Item
+                      name={['region', 'center_lat']}
+                      label="Latitude"
+                      rules={[{ required: true }]}
+                    >
+                      <InputNumber
+                        step={0.0001}
+                        style={{ width: '100%' }}
+                        formatter={formatCoord}
+                        parser={parseCoord}
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col span={8}>
+                    <Form.Item
+                      name={['region', 'center_lon']}
+                      label="Longitude"
+                      rules={[{ required: true }]}
+                    >
+                      <InputNumber
+                        step={0.0001}
+                        style={{ width: '100%' }}
+                        formatter={formatCoord}
+                        parser={parseCoord}
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col span={8}>
+                    <Form.Item name={['region', 'radius_m']} label="Radius (m)">
+                      <InputNumber step={100} style={{ width: '100%' }} />
+                    </Form.Item>
+                  </Col>
+                </Row>
               </Card>
 
               <Card title="Physical Model" size="small" style={{ marginBottom: 16 }}>
