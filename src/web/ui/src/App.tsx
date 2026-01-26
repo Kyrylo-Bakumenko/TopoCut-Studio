@@ -133,6 +133,28 @@ function App() {
   const contourInterval =
     Form.useWatch(['model', 'contour_interval_m'], form) ?? DEFAULT_CONFIG.model.contour_interval_m;
 
+  useEffect(() => {
+    let isActive = true;
+    const ping = async () => {
+      try {
+        await fetch(`${API_URL}/`, { cache: 'no-store' });
+      } catch (err) {
+        // ignore failures; this is a best-effort wake-up call
+      }
+    };
+    const startHeartbeat = () => {
+      if (!isActive) return;
+      ping();
+    };
+
+    startHeartbeat();
+    const intervalId = window.setInterval(startHeartbeat, 9 * 60 * 1000);
+
+    return () => {
+      isActive = false;
+      window.clearInterval(intervalId);
+    };
+  }, []);
   const formatCoord = (value?: string | number) => {
     if (value === undefined || value === null || value === '') return '';
     const num = typeof value === 'number' ? value : Number(value);
