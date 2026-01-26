@@ -36,17 +36,13 @@ class CORSStaticFiles(StaticFiles):
         response = await super().get_response(path, scope)
         headers = Headers(scope=scope)
         origin = headers.get("origin")
-        allow_origin = None
-        if origin:
-            if "*" in origins:
-                allow_origin = "*"
-            elif origin in origins:
-                allow_origin = origin
-        if allow_origin:
-            response.headers.setdefault("Access-Control-Allow-Origin", allow_origin)
-            response.headers.setdefault("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
-            response.headers.setdefault("Access-Control-Allow-Headers", "*")
-            response.headers.setdefault("Vary", "Origin")
+        # Allow any origin for static assets so textures can be used in WebGL.
+        # This avoids canvas tainting and CORS blocks when the UI is hosted on a different domain.
+        allow_origin = "*" if origin else "*"
+        response.headers.setdefault("Access-Control-Allow-Origin", allow_origin)
+        response.headers.setdefault("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+        response.headers.setdefault("Access-Control-Allow-Headers", "*")
+        response.headers.setdefault("Vary", "Origin")
         return response
 
 # CORS for frontend (local + deployed)
