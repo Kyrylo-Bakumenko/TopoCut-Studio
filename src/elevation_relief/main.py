@@ -1,5 +1,6 @@
 import os
 import json
+import gc
 import re
 import yaml
 import click
@@ -232,6 +233,13 @@ def run_pipeline(cfg: Dict[str, Any], run_id: Optional[str] = None, progress_cal
         'width': img_reproj.shape[2],
         'height': img_reproj.shape[1]
     })
+
+    # release raw inputs as soon as reprojection is complete
+    del dem_arr
+    del img_arr
+    del dem_prof
+    del img_prof
+    gc.collect()
     
     # 3. Slice Terrain
     interval = cfg['model']['contour_interval_m']
@@ -264,6 +272,10 @@ def run_pipeline(cfg: Dict[str, Any], run_id: Optional[str] = None, progress_cal
     # Center params for Scaling
     center_x = dem_trans.c + (width_px * dem_trans.a) / 2
     center_y = dem_trans.f + (height_px * dem_trans.e) / 2
+
+    # dem_reproj is no longer needed after slice + scale calculations
+    del dem_reproj
+    gc.collect()
     
     # Store all polygons for Nesting
     all_layer_geometries = []
