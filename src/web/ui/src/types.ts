@@ -52,7 +52,7 @@ export interface PipelineConfig {
 
 export interface JobInfo {
   id: string;
-  status: 'pending' | 'running' | 'completed' | 'failed';
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'canceled';
   result_path?: string;
   error?: string;
   progress: number;
