@@ -4,12 +4,16 @@ from rasterio.mask import mask
 from shapely.geometry import Polygon
 from typing import List, Optional
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 
 def generate_layer_texture(
     src: DatasetReader,
     layer_polys: List[Polygon],
-    output_path: Optional[str] = None
+    output_path: Optional[str] = None,
+    normalize_contrast: bool = True,
+    normalize_cutoff: float = 1.0,
+    normalize_bounds: Optional[tuple[float, float]] = None,
+    gamma: float = 1.0,
 ) -> Image.Image:
     """
     Generate a masked, dithered texture for a specific elevation layer.
@@ -45,29 +49,41 @@ def generate_layer_texture(
     # Create mask of valid data (where any band is not nodata? or based on mask return?)
     # rasterio mask fills outside with nodata.
     
-    # Let's convert to PIL
+    # Build grayscale in float space so normalization is consistent across layers.
     if data.shape[2] >= 3:
-        img = Image.fromarray(data[:, :, :3].astype('uint8'), 'RGB')
+        rgb = data[:, :, :3].astype(np.float32)
+        gray = rgb[:, :, 0] * 0.2989 + rgb[:, :, 1] * 0.5870 + rgb[:, :, 2] * 0.1140
+        valid_mask = np.ones(gray.shape, dtype=bool)
+        if nodata is not None:
+            try:
+                valid_mask = np.any(data[:, :, :3] != nodata, axis=2)
+            except Exception:
+                valid_mask = np.ones(gray.shape, dtype=bool)
     else:
-        # Grayscale
-        img = Image.fromarray(data[:, :, 0].astype('uint8'), 'L').convert('RGB')
-        
-    # Handle transparency/nodata -> White
-    # If we have an identified nodata value in the array
-    # Create an alpha mask where data == nodata
-    try:
-        alpha = np.all(data[:, :, :src.count] != nodata, axis=2).astype(np.uint8) * 255
-        alpha_img = Image.fromarray(alpha, 'L')
-        img.putalpha(alpha_img)
-    except:
-        pass
+        gray = data[:, :, 0].astype(np.float32)
+        valid_mask = np.ones(gray.shape, dtype=bool)
+        if nodata is not None:
+            valid_mask = data[:, :, 0] != nodata
 
-    # Composite onto White background
-    background = Image.new("RGB", img.size, (255, 255, 255))
-    background.paste(img, mask=img.split()[3] if len(img.split()) > 3 else None)
-    
-    # Convert to Grayscale
-    gray = background.convert('L')
+    if normalize_bounds is not None:
+        low, high = normalize_bounds
+        if high > low:
+            gray = (gray - low) / (high - low)
+            gray = np.clip(gray, 0, 1) * 255.0
+    elif normalize_contrast:
+        gray_img = Image.fromarray(np.clip(gray, 0, 255).astype('uint8'), 'L')
+        gray_img = ImageOps.autocontrast(gray_img, cutoff=normalize_cutoff)
+        gray = np.asarray(gray_img, dtype=np.float32)
+
+    # Set nodata to white so it doesn't burn.
+    gray = np.where(valid_mask, gray, 255.0)
+
+    # Gamma correction to expand contrast for engraving materials.
+    if gamma and gamma > 0 and abs(gamma - 1.0) > 1e-3:
+        gray = np.clip(gray / 255.0, 0, 1) ** gamma * 255.0
+
+    # Convert to Grayscale PIL
+    gray = Image.fromarray(np.clip(gray, 0, 255).astype('uint8'), 'L')
     
     # Improve Contrast? Terrain can be flat gray.
     # Optional: Equilize transform?

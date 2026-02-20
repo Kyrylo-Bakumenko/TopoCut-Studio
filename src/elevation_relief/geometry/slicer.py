@@ -99,6 +99,11 @@ def slice_terrain(
                 s = shape(geom)
                 if not s.is_valid:
                     s = s.buffer(0)
+
+                # Preserve full perimeter to avoid smoothing/ simplification rounding the square edge.
+                if s.area > 0.95 * bounds_poly.area:
+                    layer_polys.append(bounds_poly)
+                    continue
                 
                 # Simplify
                 # Use a small tolerance relative to resolution.

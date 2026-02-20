@@ -19,17 +19,46 @@ model:
   # E.g. 1/8 inch plywood ~ 3mm. 
   # If 3mm represents 100m elevation, vertical exaggeration is implicit.
   # OR define explicit contour interval in meters.
-  layer_thickness_mm: 3.175 # 1/8 inch
+  layer_thickness_mm: 1.5875 # 1/16 inch
   contour_interval_m: 50.0  # Vertical step between layers in real world meters
 
 data:
   dem_source: "glo_30" # Options: glo_30, 3dep (if US)
   imagery_source: "naip" # Options: naip (US), sentinel2 (Global)
 
+profiles:
+  machine_id: null
+  machine_name: null
+  material_id: null
+  material_name: null
+
 processing:
-  smoothing_sigma: 1.0 # Gaussian blur sigma for DEM before contouring
+  smoothing_sigma: 0.0 # Gaussian blur sigma for DEM before contouring
+  geometric_smoothing: false # Chaikin smoothing of vector borders (noisy lines)
+  texture_normalize: true # Normalize texture contrast before dithering
+  texture_normalize_cutoff: 1.0 # Autocontrast cutoff percentage
+  texture_gamma: 1.1 # Gamma curve for texture contrast (1 = neutral)
+  min_part_area_sq_in: 0.015 # Remove islands smaller than this physical area threshold
   simplification_tol: 0.5 # Shapely simplify tolerance
   kerf_width_mm: 0.15   # Laser kerf compensation
+  calibration:
+    enabled: true
+    mode: "auto_pack"
+    pattern: "gamma_ladder"
+    gamma_min: 0.70
+    gamma_max: 1.60
+    gamma_steps: 10
+    strip_width_mm: 140.0
+    strip_height_mm: 28.0
+    padding_mm: 2.0
+  nesting:
+    enabled: true
+    sheet_width_in: 24.0
+    sheet_height_in: 12.0
+    bed_width_in: 24.0
+    bed_height_in: 12.0
+    sheet_margin_in: 0.125
+    sheet_gap_in: 0.0625
 
 export:
   format: "dxf" # dxf or svg
