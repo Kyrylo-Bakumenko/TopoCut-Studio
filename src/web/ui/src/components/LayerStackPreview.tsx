@@ -230,18 +230,16 @@ function LayerMesh({
     });
 
     const sideMaterial = new THREE.MeshStandardMaterial({
-      transparent: true,
-      opacity: 0,
-      depthWrite: false,
-      colorWrite: false,
+      color: new THREE.Color(isActive ? '#1e293b' : '#0f172a'),
+      roughness: 0.9,
+      metalness: 0.05,
       side: THREE.FrontSide,
     });
 
     const bottomMaterial = new THREE.MeshStandardMaterial({
-      transparent: true,
-      opacity: 0,
-      depthWrite: false,
-      colorWrite: false,
+      color: new THREE.Color('#0b1220'),
+      roughness: 0.95,
+      metalness: 0.02,
       side: THREE.FrontSide,
     });
 

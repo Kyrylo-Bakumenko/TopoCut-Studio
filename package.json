@@ -1,4 +1,9 @@
 {
+  "scripts": {
+    "ui:install": "npm --prefix src/web/ui install",
+    "ui:dev": "npm --prefix src/web/ui run dev",
+    "api:dev": "poetry run uvicorn src.web.api.main:app --reload"
+  },
   "dependencies": {
     "leaflet-edgebuffer": "^1.0.7"
   }

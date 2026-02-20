@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Layout,
   Form,
@@ -28,6 +28,8 @@ import {
   CheckCircleOutlined,
   CloseCircleOutlined,
   ClockCircleOutlined,
+  DeleteOutlined,
+  DownloadOutlined,
   SyncOutlined,
   SettingOutlined,
 } from '@ant-design/icons';
@@ -35,7 +37,16 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import MapSelector from './components/MapSelector';
 import JobResultsPanel from './components/JobResultsPanel';
-import type { PipelineConfig, JobInfo } from './types';
+import type {
+  JobInfo,
+  MachineProfile,
+  MaterialProfile,
+  PipelineConfig,
+  ProfileDefaultsResponse,
+  AuthResponse,
+  AuthUser,
+  CustomProfilesResponse,
+} from './types';
 
 const { Header, Content, Sider } = Layout;
 const { Title, Text } = Typography;
@@ -45,6 +56,59 @@ const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
 const GEOCODE_URL =
   import.meta.env.VITE_GEOCODE_URL ?? 'https://nominatim.openstreetmap.org/search';
 const COORD_DECIMALS = 5;
+const AUTH_TOKEN_KEY = 'elevation-relief.authToken.v1';
+
+const FALLBACK_MACHINE_PROFILES: MachineProfile[] = [
+  {
+    id: 'cricut-maker-3',
+    name: 'Cricut Maker 3',
+    bed_width_in: 12,
+    bed_height_in: 12,
+    sheet_margin_in: 0.25,
+    sheet_gap_in: 0.08,
+    calibration_enabled_default: false,
+  },
+  {
+    id: 'laser-cutter',
+    name: 'Laser Cutter',
+    bed_width_in: 24,
+    bed_height_in: 12,
+    sheet_margin_in: 0.25,
+    sheet_gap_in: 0.125,
+    calibration_enabled_default: true,
+  },
+];
+
+const FALLBACK_MATERIAL_PROFILES: MaterialProfile[] = [
+  {
+    id: 'birch-1-4-12x24',
+    name: '1/4" Birch (12x24)',
+    sheet_width_in: 24,
+    sheet_height_in: 12,
+    layer_thickness_mm: 6.35,
+  },
+  {
+    id: 'birch-1-8-12x24',
+    name: '1/8" Birch (12x24)',
+    sheet_width_in: 24,
+    sheet_height_in: 12,
+    layer_thickness_mm: 3.175,
+  },
+  {
+    id: 'birch-1-16-12x12',
+    name: '1/16" Birch (12x12)',
+    sheet_width_in: 12,
+    sheet_height_in: 12,
+    layer_thickness_mm: 1.5875,
+  },
+  {
+    id: 'paper-0p004-letter',
+    name: 'Paper 0.004" (Letter 8.5x11)',
+    sheet_width_in: 11,
+    sheet_height_in: 8.5,
+    layer_thickness_mm: 0.1016,
+  },
+];
 
 const DEFAULT_CONFIG: PipelineConfig = {
   experiment: { name: 'web_run_01', output_dir: 'results' },
@@ -56,17 +120,40 @@ const DEFAULT_CONFIG: PipelineConfig = {
     contour_interval_m: 50.0,
   },
   data: { dem_source: 'glo_30', imagery_source: 'naip', imagery_resolution: '5m' },
+  profiles: {
+    machine_id: 'laser-cutter',
+    machine_name: 'Laser Cutter',
+    material_id: 'birch-1-8-12x24',
+    material_name: '1/8" Birch (12x24)',
+  },
   processing: {
-    smoothing_sigma: 1.0,
+    smoothing_sigma: 0.0,
     simplification_tol: 0.5,
     kerf_width_mm: 0.15,
-    geometric_smoothing: true,
+    geometric_smoothing: false,
+    texture_normalize: true,
+    texture_normalize_cutoff: 1.0,
+    texture_gamma: 1.1,
+    min_part_area_sq_in: 0.015,
+    calibration: {
+      enabled: true,
+      mode: 'auto_pack',
+      pattern: 'gamma_ladder',
+      gamma_min: 0.7,
+      gamma_max: 1.6,
+      gamma_steps: 10,
+      strip_width_mm: 140,
+      strip_height_mm: 28,
+      padding_mm: 2,
+    },
     nesting: {
       enabled: true,
       sheet_width_in: 24.0,
       sheet_height_in: 12.0,
-      sheet_margin_in: 0.125,
-      sheet_gap_in: 0.0625,
+      bed_width_in: 24.0,
+      bed_height_in: 12.0,
+      sheet_margin_in: 0.25,
+      sheet_gap_in: 0.125,
     },
   },
   export: { format: 'dxf', layers_per_file: 1 },
@@ -115,12 +202,20 @@ function getStatusTag(status: string) {
 function App() {
   const [form] = Form.useForm<PipelineConfig>();
   const queryClient = useQueryClient();
-  const [jobHistory, setJobHistory] = useState<string[]>([]);
   const [expandedJobs, setExpandedJobs] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState('map');
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [customMachineProfiles, setCustomMachineProfiles] = useState<MachineProfile[]>([]);
+  const [customMaterialProfiles, setCustomMaterialProfiles] = useState<MaterialProfile[]>([]);
+  const [machineProfileNameInput, setMachineProfileNameInput] = useState('');
+  const [materialProfileNameInput, setMaterialProfileNameInput] = useState('');
+  const [authToken, setAuthToken] = useState<string | null>(() => localStorage.getItem(AUTH_TOKEN_KEY));
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authError, setAuthError] = useState<string | null>(null);
   // tracks which input should drive derived updates
   const lastEditedRef = useRef<'radius' | 'contour'>('radius');
   // guards against feedback loops during form sync
@@ -138,6 +233,31 @@ function App() {
     Form.useWatch(['model', 'layer_thickness_mm'], form) ?? DEFAULT_CONFIG.model.layer_thickness_mm;
   const contourInterval =
     Form.useWatch(['model', 'contour_interval_m'], form) ?? DEFAULT_CONFIG.model.contour_interval_m;
+  const selectedMachineProfileId =
+    Form.useWatch(['profiles', 'machine_id'], form) ?? DEFAULT_CONFIG.profiles.machine_id;
+  const selectedMaterialProfileId =
+    Form.useWatch(['profiles', 'material_id'], form) ?? DEFAULT_CONFIG.profiles.material_id;
+  const bedWidthIn =
+    Form.useWatch(['processing', 'nesting', 'bed_width_in'], form) ??
+    DEFAULT_CONFIG.processing.nesting.bed_width_in;
+  const bedHeightIn =
+    Form.useWatch(['processing', 'nesting', 'bed_height_in'], form) ??
+    DEFAULT_CONFIG.processing.nesting.bed_height_in;
+  const sheetWidthIn =
+    Form.useWatch(['processing', 'nesting', 'sheet_width_in'], form) ??
+    DEFAULT_CONFIG.processing.nesting.sheet_width_in;
+  const sheetHeightIn =
+    Form.useWatch(['processing', 'nesting', 'sheet_height_in'], form) ??
+    DEFAULT_CONFIG.processing.nesting.sheet_height_in;
+  const sheetMarginIn =
+    Form.useWatch(['processing', 'nesting', 'sheet_margin_in'], form) ??
+    DEFAULT_CONFIG.processing.nesting.sheet_margin_in;
+  const sheetGapIn =
+    Form.useWatch(['processing', 'nesting', 'sheet_gap_in'], form) ??
+    DEFAULT_CONFIG.processing.nesting.sheet_gap_in;
+  const calibrationEnabled =
+    Form.useWatch(['processing', 'calibration', 'enabled'], form) ??
+    DEFAULT_CONFIG.processing.calibration.enabled;
 
   useEffect(() => {
     let isActive = true;
@@ -172,50 +292,341 @@ function App() {
 
   const parseCoord = (value?: string) => value?.replace(/[^\d.-]/g, '') ?? '';
 
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem('elevation-relief.jobHistory');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) {
-          setJobHistory(parsed);
-        }
-      }
-    } catch (err) {
-      // ignore malformed storage
-    }
-  }, []);
+  const { data: profileDefaults } = useQuery({
+    queryKey: ['profileDefaults'],
+    queryFn: async () => {
+      const res = await axios.get(`${API_URL}/profiles/defaults`);
+      return res.data as ProfileDefaultsResponse;
+    },
+    staleTime: 30 * 60 * 1000,
+  });
+
+  const builtInMachineProfiles = profileDefaults?.machine_profiles ?? FALLBACK_MACHINE_PROFILES;
+  const builtInMaterialProfiles = profileDefaults?.material_profiles ?? FALLBACK_MATERIAL_PROFILES;
 
   useEffect(() => {
-    try {
-      localStorage.setItem('elevation-relief.jobHistory', JSON.stringify(jobHistory));
-    } catch (err) {
-      // ignore storage errors
+    if (authToken) {
+      localStorage.setItem(AUTH_TOKEN_KEY, authToken);
+    } else {
+      localStorage.removeItem(AUTH_TOKEN_KEY);
     }
-  }, [jobHistory]);
+  }, [authToken]);
+
+  const authHeaders = useMemo(
+    () => (authToken ? { Authorization: `Bearer ${authToken}` } : undefined),
+    [authToken],
+  );
+
+  const authMeQuery = useQuery({
+    queryKey: ['authMe', authToken],
+    queryFn: async () => {
+      if (!authHeaders) return null;
+      const res = await axios.get(`${API_URL}/auth/me`, { headers: authHeaders });
+      return res.data as AuthUser;
+    },
+    enabled: !!authToken,
+    retry: false,
+  });
+
+  const customProfilesQuery = useQuery({
+    queryKey: ['customProfiles', authToken],
+    queryFn: async () => {
+      if (!authHeaders) return null;
+      const res = await axios.get(`${API_URL}/profiles/custom`, { headers: authHeaders });
+      return res.data as CustomProfilesResponse;
+    },
+    enabled: !!authToken,
+    retry: false,
+  });
+  const { refetch: refetchCustomProfiles, isFetching: isCustomProfilesLoading } = customProfilesQuery;
+
+  useEffect(() => {
+    if (authMeQuery.data) {
+      setAuthUser(authMeQuery.data);
+    }
+  }, [authMeQuery.data]);
+
+  useEffect(() => {
+    if (authMeQuery.isError) {
+      setAuthToken(null);
+      setAuthUser(null);
+    }
+  }, [authMeQuery.isError]);
+
+  useEffect(() => {
+    if (customProfilesQuery.data) {
+      setCustomMachineProfiles(customProfilesQuery.data.machine_profiles ?? []);
+      setCustomMaterialProfiles(customProfilesQuery.data.material_profiles ?? []);
+    }
+  }, [customProfilesQuery.data]);
+
+  useEffect(() => {
+    if (customProfilesQuery.isError) {
+      setCustomMachineProfiles([]);
+      setCustomMaterialProfiles([]);
+    }
+  }, [customProfilesQuery.isError]);
+
+  useEffect(() => {
+    if (!authToken) {
+      setAuthUser(null);
+      setCustomMachineProfiles([]);
+      setCustomMaterialProfiles([]);
+    }
+  }, [authToken]);
+
+  const machineProfiles = useMemo(
+    () => [...builtInMachineProfiles, ...customMachineProfiles],
+    [builtInMachineProfiles, customMachineProfiles],
+  );
+  const materialProfiles = useMemo(
+    () => [...builtInMaterialProfiles, ...customMaterialProfiles],
+    [builtInMaterialProfiles, customMaterialProfiles],
+  );
+
+  const applyMachineProfile = (profile: MachineProfile) => {
+    const currentProfiles = form.getFieldValue('profiles') ?? {};
+    const currentNesting = form.getFieldValue(['processing', 'nesting']) ?? {};
+    const currentCalibration = form.getFieldValue(['processing', 'calibration']) ?? {};
+    form.setFieldsValue({
+      profiles: {
+        ...currentProfiles,
+        machine_id: profile.id,
+        machine_name: profile.name,
+      },
+      processing: {
+        nesting: {
+          ...currentNesting,
+          bed_width_in: profile.bed_width_in,
+          bed_height_in: profile.bed_height_in,
+          sheet_margin_in: profile.sheet_margin_in,
+          sheet_gap_in: profile.sheet_gap_in,
+        },
+        calibration: {
+          ...currentCalibration,
+          enabled: profile.calibration_enabled_default,
+        },
+      },
+    });
+  };
+
+  const applyMaterialProfile = (profile: MaterialProfile) => {
+    const currentProfiles = form.getFieldValue('profiles') ?? {};
+    const currentNesting = form.getFieldValue(['processing', 'nesting']) ?? {};
+    const currentModel = form.getFieldValue('model') ?? {};
+    form.setFieldsValue({
+      profiles: {
+        ...currentProfiles,
+        material_id: profile.id,
+        material_name: profile.name,
+      },
+      model: {
+        ...currentModel,
+        layer_thickness_mm: profile.layer_thickness_mm,
+      },
+      processing: {
+        nesting: {
+          ...currentNesting,
+          sheet_width_in: profile.sheet_width_in,
+          sheet_height_in: profile.sheet_height_in,
+        },
+      },
+    });
+  };
+
+  const handleMachineProfileSelect = (profileId: string) => {
+    const profile = machineProfiles.find((item) => item.id === profileId);
+    if (profile) applyMachineProfile(profile);
+  };
+
+  const handleMaterialProfileSelect = (profileId: string) => {
+    const profile = materialProfiles.find((item) => item.id === profileId);
+    if (profile) applyMaterialProfile(profile);
+  };
+
+  const selectedMachineIsCustom = !!selectedMachineProfileId?.startsWith('custom-machine-');
+  const selectedMaterialIsCustom = !!selectedMaterialProfileId?.startsWith('custom-material-');
+
+  const saveMachineProfile = async () => {
+    if (!authHeaders) {
+      setAuthError('Please login to save profiles.');
+      return;
+    }
+    const existing = machineProfiles.find((item) => item.id === selectedMachineProfileId);
+    const name = machineProfileNameInput.trim() || existing?.name || 'Custom Machine';
+    const payload = {
+      kind: 'machine',
+      name,
+      data: {
+        bed_width_in: Number(bedWidthIn),
+        bed_height_in: Number(bedHeightIn),
+        sheet_margin_in: Number(sheetMarginIn),
+        sheet_gap_in: Number(sheetGapIn),
+        calibration_enabled_default: Boolean(calibrationEnabled),
+      },
+    };
+    try {
+      if (selectedMachineIsCustom && !machineProfileNameInput.trim() && selectedMachineProfileId) {
+        await axios.put(`${API_URL}/profiles/custom/${selectedMachineProfileId}`, payload, {
+          headers: authHeaders,
+        });
+      } else {
+        await axios.post(`${API_URL}/profiles/custom`, payload, { headers: authHeaders });
+      }
+      setAuthError(null);
+      setMachineProfileNameInput('');
+      await refetchCustomProfiles();
+    } catch (error: any) {
+      setAuthError(error?.response?.data?.detail ?? 'Unable to save machine profile.');
+    }
+  };
+
+  const saveMaterialProfile = async () => {
+    if (!authHeaders) {
+      setAuthError('Please login to save profiles.');
+      return;
+    }
+    const existing = materialProfiles.find((item) => item.id === selectedMaterialProfileId);
+    const name = materialProfileNameInput.trim() || existing?.name || 'Custom Material';
+    const payload = {
+      kind: 'material',
+      name,
+      data: {
+        sheet_width_in: Number(sheetWidthIn),
+        sheet_height_in: Number(sheetHeightIn),
+        layer_thickness_mm: Number(thicknessMm),
+      },
+    };
+    try {
+      if (
+        selectedMaterialIsCustom &&
+        !materialProfileNameInput.trim() &&
+        selectedMaterialProfileId
+      ) {
+        await axios.put(`${API_URL}/profiles/custom/${selectedMaterialProfileId}`, payload, {
+          headers: authHeaders,
+        });
+      } else {
+        await axios.post(`${API_URL}/profiles/custom`, payload, { headers: authHeaders });
+      }
+      setAuthError(null);
+      setMaterialProfileNameInput('');
+      await refetchCustomProfiles();
+    } catch (error: any) {
+      setAuthError(error?.response?.data?.detail ?? 'Unable to save material profile.');
+    }
+  };
+
+  const deleteSelectedCustomMachineProfile = async () => {
+    if (!authHeaders || !selectedMachineProfileId || !selectedMachineIsCustom) return;
+    try {
+      await axios.delete(`${API_URL}/profiles/custom/${selectedMachineProfileId}`, {
+        headers: authHeaders,
+        params: { kind: 'machine' },
+      });
+      setAuthError(null);
+      await refetchCustomProfiles();
+      const fallback =
+        builtInMachineProfiles.find((item) => item.id === DEFAULT_CONFIG.profiles.machine_id) ??
+        builtInMachineProfiles[0];
+      if (fallback) applyMachineProfile(fallback);
+    } catch (error: any) {
+      setAuthError(error?.response?.data?.detail ?? 'Unable to delete machine profile.');
+    }
+  };
+
+  const deleteSelectedCustomMaterialProfile = async () => {
+    if (!authHeaders || !selectedMaterialProfileId || !selectedMaterialIsCustom) return;
+    try {
+      await axios.delete(`${API_URL}/profiles/custom/${selectedMaterialProfileId}`, {
+        headers: authHeaders,
+        params: { kind: 'material' },
+      });
+      setAuthError(null);
+      await refetchCustomProfiles();
+      const fallback =
+        builtInMaterialProfiles.find((item) => item.id === DEFAULT_CONFIG.profiles.material_id) ??
+        builtInMaterialProfiles[0];
+      if (fallback) applyMaterialProfile(fallback);
+    } catch (error: any) {
+      setAuthError(error?.response?.data?.detail ?? 'Unable to delete material profile.');
+    }
+  };
+
+  const signup = useMutation({
+    mutationFn: async () => {
+      const res = await axios.post(`${API_URL}/auth/signup`, {
+        email: authEmail,
+        password: authPassword,
+      });
+      return res.data as AuthResponse;
+    },
+    onSuccess: (data) => {
+      setAuthToken(data.token);
+      setAuthUser(data.user);
+      setAuthError(null);
+      setAuthPassword('');
+      queryClient.invalidateQueries({ queryKey: ['customProfiles'] });
+      queryClient.invalidateQueries({ queryKey: ['allJobs'] });
+    },
+    onError: (error: any) => {
+      setAuthError(error?.response?.data?.detail ?? 'Signup failed.');
+    },
+  });
+
+  const login = useMutation({
+    mutationFn: async () => {
+      const res = await axios.post(`${API_URL}/auth/login`, {
+        email: authEmail,
+        password: authPassword,
+      });
+      return res.data as AuthResponse;
+    },
+    onSuccess: (data) => {
+      setAuthToken(data.token);
+      setAuthUser(data.user);
+      setAuthError(null);
+      setAuthPassword('');
+      queryClient.invalidateQueries({ queryKey: ['customProfiles'] });
+      queryClient.invalidateQueries({ queryKey: ['allJobs'] });
+    },
+    onError: (error: any) => {
+      setAuthError(error?.response?.data?.detail ?? 'Login failed.');
+    },
+  });
+
+  const handleLogout = async () => {
+    try {
+      if (authHeaders) {
+        await axios.post(`${API_URL}/auth/logout`, {}, { headers: authHeaders });
+      }
+    } catch (err) {
+      // ignore network logout errors; local token clear is source of truth
+    }
+    setAuthToken(null);
+    setAuthUser(null);
+    setCustomMachineProfiles([]);
+    setCustomMaterialProfiles([]);
+    queryClient.invalidateQueries({ queryKey: ['allJobs'] });
+  };
 
   // mutation: submit job
   const submitJob = useMutation({
     mutationFn: async (values: PipelineConfig) => {
-      const res = await axios.post(`${API_URL}/jobs`, values);
+      if (!authHeaders) throw new Error('Please login to submit jobs.');
+      const res = await axios.post(`${API_URL}/jobs`, values, { headers: authHeaders });
       return res.data as JobInfo;
     },
-    onSuccess: (data) => {
-      queryClient.setQueriesData({ queryKey: ['allJobs'] }, (oldData) => {
-        if (!oldData || typeof oldData !== 'object') {
-          return { [data.id]: data } as Record<string, JobInfo>;
-        }
-        return { ...(oldData as Record<string, JobInfo>), [data.id]: data };
-      });
-      setJobHistory((prev) => [data.id, ...prev]);
-      setExpandedJobs((prev) => (prev.includes(data.id) ? prev : [data.id, ...prev]));
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['allJobs'] });
       setActiveTab('jobs');
     },
   });
 
   const cancelJob = useMutation({
     mutationFn: async (jobId: string) => {
-      const res = await axios.post(`${API_URL}/jobs/${jobId}/cancel`);
+      if (!authHeaders) throw new Error('Please login.');
+      const res = await axios.post(`${API_URL}/jobs/${jobId}/cancel`, {}, { headers: authHeaders });
       return res.data as { status: string; message: string };
     },
     onSuccess: () => {
@@ -223,28 +634,52 @@ function App() {
     },
   });
 
+  const deleteJob = useMutation({
+    mutationFn: async (jobId: string) => {
+      if (!authHeaders) throw new Error('Please login.');
+      const res = await axios.delete(`${API_URL}/jobs/${jobId}`, { headers: authHeaders });
+      return res.data;
+    },
+    onSuccess: (_, jobId) => {
+      setExpandedJobs((prev) => prev.filter((id) => id !== jobId));
+      queryClient.invalidateQueries({ queryKey: ['allJobs'] });
+    },
+  });
+
   const handleDeleteJob = (jobId: string) => {
-    setJobHistory((prev) => prev.filter((id) => id !== jobId));
-    setExpandedJobs((prev) => prev.filter((id) => id !== jobId));
+    deleteJob.mutate(jobId);
   };
 
   // query: get all jobs status (for polling running jobs)
   const { data: allJobs, isError: allJobsError } = useQuery({
-    queryKey: ['allJobs', jobHistory],
+    queryKey: ['allJobs', authToken],
     queryFn: async () => {
-      const res = await axios.get(`${API_URL}/jobs`);
+      if (!authHeaders) return {};
+      const res = await axios.get(`${API_URL}/jobs`, { headers: authHeaders });
       return res.data as Record<string, JobInfo>;
     },
+    enabled: !!authToken,
     refetchInterval: (query) => {
       const jobs = query.state.data as Record<string, JobInfo> | undefined;
-      if (!jobs || jobHistory.length === 0) return 2000;
-      const hasRunning = jobHistory.some((id) => {
+      const ids = Object.keys(jobs || {});
+      if (!jobs || ids.length === 0) return 2000;
+      const hasRunning = ids.some((id) => {
         const job = jobs[id];
         return job && (job.status === 'running' || job.status === 'pending');
       });
       return hasRunning ? 2000 : false;
     },
   });
+
+  const jobHistory = useMemo(() => {
+    const entries = Object.entries(allJobs || {});
+    entries.sort((a, b) => {
+      const aTime = new Date(a[1].created_at || 0).getTime();
+      const bTime = new Date(b[1].created_at || 0).getTime();
+      return bTime - aTime;
+    });
+    return entries.map(([id]) => id);
+  }, [allJobs]);
 
   // auto-expand and switch to jobs tab when a job completes
   useEffect(() => {
@@ -257,12 +692,18 @@ function App() {
     }
   }, [allJobs, jobHistory]);
 
+  const normalizeLongitude = (lon: number) => {
+    const wrapped = ((lon + 180) % 360 + 360) % 360 - 180;
+    if (Object.is(wrapped, -180)) return 180;
+    return wrapped;
+  };
+
   const handleMapCoords = (newLat: number, newLon: number) => {
     lastEditedRef.current = 'radius';
     form.setFieldsValue({
       region: {
         center_lat: newLat,
-        center_lon: newLon,
+        center_lon: normalizeLongitude(newLon),
       },
     });
   };
@@ -351,6 +792,10 @@ function App() {
     const mergedProcessing = {
       ...DEFAULT_CONFIG.processing,
       ...values.processing,
+      calibration: {
+        ...DEFAULT_CONFIG.processing.calibration,
+        ...(values.processing?.calibration || {}),
+      },
       nesting: {
         ...DEFAULT_CONFIG.processing.nesting,
         ...(values.processing?.nesting || {}),
@@ -362,6 +807,7 @@ function App() {
       region: { ...DEFAULT_CONFIG.region, ...values.region },
       model: { ...DEFAULT_CONFIG.model, ...values.model },
       data: { ...DEFAULT_CONFIG.data, ...values.data },
+      profiles: { ...DEFAULT_CONFIG.profiles, ...(values.profiles || {}) },
       processing: mergedProcessing,
       export: { ...DEFAULT_CONFIG.export, ...values.export },
     };
@@ -417,6 +863,82 @@ function App() {
       </div>
     </div>
   );
+  const authContent = (
+    <div style={{ minWidth: 240 }}>
+      {!authUser ? (
+        <>
+          <Space.Compact style={{ width: '100%', marginBottom: 8 }}>
+            <Input
+              placeholder="Email"
+              value={authEmail}
+              onChange={(event) => setAuthEmail(event.target.value)}
+            />
+          </Space.Compact>
+          <Space.Compact style={{ width: '100%', marginBottom: 8 }}>
+            <Input.Password
+              placeholder="Password"
+              value={authPassword}
+              onChange={(event) => setAuthPassword(event.target.value)}
+              onPressEnter={() => login.mutate()}
+            />
+          </Space.Compact>
+          <Space>
+            <Button size="small" onClick={() => login.mutate()} loading={login.isPending}>
+              Login
+            </Button>
+            <Button size="small" onClick={() => signup.mutate()} loading={signup.isPending}>
+              Sign Up
+            </Button>
+          </Space>
+        </>
+      ) : (
+        <Space direction="vertical" size={8}>
+          <Text type="secondary">Signed in as {authUser.email}</Text>
+          <Button size="small" onClick={handleLogout}>
+            Logout
+          </Button>
+        </Space>
+      )}
+      {authError && (
+        <Typography.Text type="danger" style={{ display: 'block', marginTop: 8 }}>
+          {authError}
+        </Typography.Text>
+      )}
+    </div>
+  );
+  const authButtonLabel = authUser ? authUser.email : 'Login';
+  const machineProfileOptions = [
+    {
+      label: 'Built-in',
+      options: builtInMachineProfiles.map((profile) => ({
+        value: profile.id,
+        label: profile.name,
+      })),
+    },
+    {
+      label: 'Account',
+      options: customMachineProfiles.map((profile) => ({
+        value: profile.id,
+        label: `${profile.name} (Saved)`,
+      })),
+    },
+  ];
+  const materialProfileOptions = [
+    {
+      label: 'Built-in',
+      options: builtInMaterialProfiles.map((profile) => ({
+        value: profile.id,
+        label: profile.name,
+      })),
+    },
+    {
+      label: 'Account',
+      options: customMaterialProfiles.map((profile) => ({
+        value: profile.id,
+        label: `${profile.name} (Saved)`,
+      })),
+    },
+  ];
 
   return (
     <ConfigProvider
@@ -447,37 +969,40 @@ function App() {
           <Sider
             width={400}
             theme={isDarkMode ? 'dark' : 'light'}
-            style={{ overflowY: 'auto', padding: '20px', borderRight: `1px solid ${siderBorder}` }}
+            style={{ overflow: 'hidden', padding: 0, borderRight: `1px solid ${siderBorder}` }}
           >
-            <Form
-              form={form}
-              layout="vertical"
-              initialValues={DEFAULT_CONFIG}
-              onFinish={handleFinish}
-              onValuesChange={(changedValues) => {
-                if (isInternalUpdate.current) return;
-                // update last edited field to resolve radius/contour coupling
-                if (changedValues?.region?.radius_m !== undefined) {
-                  lastEditedRef.current = 'radius';
-                }
-                if (changedValues?.model?.contour_interval_m !== undefined) {
-                  lastEditedRef.current = 'contour';
-                }
-                if (changedValues?.model?.width_inches !== undefined) {
-                  lastEditedRef.current = 'radius';
-                }
-                if (changedValues?.model?.layer_thickness_mm !== undefined) {
-                  lastEditedRef.current = 'radius';
-                }
-              }}
-              disabled={!!isRunning}
-            >
+            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+              <div style={{ flex: 1, overflowY: 'auto', padding: 20, boxSizing: 'border-box' }}>
+              <Form
+                id="config-form"
+                form={form}
+                layout="vertical"
+                initialValues={DEFAULT_CONFIG}
+                onFinish={handleFinish}
+                onValuesChange={(changedValues) => {
+                  if (isInternalUpdate.current) return;
+                  // update last edited field to resolve radius/contour coupling
+                  if (changedValues?.region?.radius_m !== undefined) {
+                    lastEditedRef.current = 'radius';
+                  }
+                  if (changedValues?.model?.contour_interval_m !== undefined) {
+                    lastEditedRef.current = 'contour';
+                  }
+                  if (changedValues?.model?.width_inches !== undefined) {
+                    lastEditedRef.current = 'radius';
+                  }
+                  if (changedValues?.model?.layer_thickness_mm !== undefined) {
+                    lastEditedRef.current = 'radius';
+                  }
+                }}
+                disabled={!!isRunning}
+              >
               <Card title="Region" size="small" style={{ marginBottom: 16 }}>
                 <Form.Item label="Search location">
                   <Input.Search
                     placeholder="Search a place or address"
                     allowClear
-                    enterButton="Search"
+                    enterButton={<Button type="default">Search</Button>}
                     loading={searchLoading}
                     onSearch={handleSearchLocation}
                     onKeyDown={(event) => {
@@ -541,6 +1066,8 @@ function App() {
                 </Space>
                 <Form.Item name={['model', 'layer_thickness_mm']} label="Layer Thickness">
                   <Select>
+                    <Option value={0.1016}>Paper 0.004" (0.1016 mm)</Option>
+                    <Option value={6.35}>1/4" (6.35 mm)</Option>
                     <Option value={3.175}>1/8" (3.175 mm)</Option>
                     <Option value={1.5875}>1/16" (1.5875 mm)</Option>
                   </Select>
@@ -603,6 +1130,113 @@ function App() {
                   Applies geometric smoothing to reduce jagged contour edges for cleaner laser
                   paths.
                 </Typography.Paragraph>
+
+                <div style={{ marginTop: 12 }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 8,
+                    }}
+                  >
+                    <Typography.Text strong>Normalize Texture</Typography.Text>
+                    <Form.Item
+                      name={['processing', 'texture_normalize']}
+                      valuePropName="checked"
+                      style={{ marginBottom: 0 }}
+                    >
+                      <Switch checkedChildren="On" unCheckedChildren="Off" />
+                    </Form.Item>
+                  </div>
+                  <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
+                    Equalizes contrast before dithering for more consistent grayscale textures.
+                  </Typography.Paragraph>
+                  <Form.Item
+                    name={['processing', 'texture_normalize_cutoff']}
+                    label="Normalize Cutoff (%)"
+                    tooltip="Percentile cutoff for autocontrast. Higher = flatter, less affected by extremes."
+                  >
+                    <InputNumber min={0} max={10} step={0.5} />
+                  </Form.Item>
+                  <Form.Item
+                    name={['processing', 'texture_gamma']}
+                    label="Texture Gamma"
+                    tooltip="Gamma correction for engraving contrast. 1 = neutral."
+                  >
+                    <InputNumber min={0.5} max={2.0} step={0.05} />
+                  </Form.Item>
+                </div>
+              </Card>
+
+              <Card title="Profiles" size="small" style={{ marginBottom: 16 }}>
+                <Form.Item
+                  name={['profiles', 'machine_id']}
+                  label="Machine Profile"
+                  tooltip="Sets bed size, edge margin, part gap, and default calibration toggle."
+                >
+                  <Select
+                    options={machineProfileOptions}
+                    onChange={(value) => handleMachineProfileSelect(String(value))}
+                  />
+                </Form.Item>
+                <Form.Item name={['profiles', 'machine_name']} hidden>
+                  <Input />
+                </Form.Item>
+                <Space.Compact style={{ width: '100%', marginBottom: 8 }}>
+                  <Input
+                    placeholder="Profile name (optional)"
+                    value={machineProfileNameInput}
+                    onChange={(event) => setMachineProfileNameInput(event.target.value)}
+                    onPressEnter={() => saveMachineProfile()}
+                    disabled={!authUser}
+                  />
+                  <Button
+                    icon={<DownloadOutlined />}
+                    onClick={() => saveMachineProfile()}
+                    loading={isCustomProfilesLoading}
+                    disabled={!authUser}
+                  />
+                  <Button
+                    icon={<DeleteOutlined />}
+                    onClick={() => deleteSelectedCustomMachineProfile()}
+                    disabled={!authUser || !selectedMachineIsCustom}
+                  />
+                </Space.Compact>
+
+                <Form.Item
+                  name={['profiles', 'material_id']}
+                  label="Material Profile"
+                  tooltip="Sets sheet size and default layer thickness."
+                >
+                  <Select
+                    options={materialProfileOptions}
+                    onChange={(value) => handleMaterialProfileSelect(String(value))}
+                  />
+                </Form.Item>
+                <Form.Item name={['profiles', 'material_name']} hidden>
+                  <Input />
+                </Form.Item>
+                <Space.Compact style={{ width: '100%', marginBottom: 8 }}>
+                  <Input
+                    placeholder="Profile name (optional)"
+                    value={materialProfileNameInput}
+                    onChange={(event) => setMaterialProfileNameInput(event.target.value)}
+                    onPressEnter={() => saveMaterialProfile()}
+                    disabled={!authUser}
+                  />
+                  <Button
+                    icon={<DownloadOutlined />}
+                    onClick={() => saveMaterialProfile()}
+                    loading={isCustomProfilesLoading}
+                    disabled={!authUser}
+                  />
+                  <Button
+                    icon={<DeleteOutlined />}
+                    onClick={() => deleteSelectedCustomMaterialProfile()}
+                    disabled={!authUser || !selectedMaterialIsCustom}
+                  />
+                </Space.Compact>
               </Card>
 
               <Card
@@ -632,6 +1266,17 @@ function App() {
                   Packs layers onto sheet layouts for efficient cutting and composite previews.
                 </Typography.Paragraph>
                 <Space>
+                  <Form.Item name={['processing', 'nesting', 'bed_width_in']} label="Bed Width (in)">
+                    <InputNumber step={1} />
+                  </Form.Item>
+                  <Form.Item
+                    name={['processing', 'nesting', 'bed_height_in']}
+                    label="Bed Height (in)"
+                  >
+                    <InputNumber step={1} />
+                  </Form.Item>
+                </Space>
+                <Space>
                   <Form.Item
                     name={['processing', 'nesting', 'sheet_width_in']}
                     label="Sheet Width (in)"
@@ -656,56 +1301,65 @@ function App() {
                 </Form.Item>
               </Card>
 
+              <Card title="Calibration Strip" size="small" style={{ marginBottom: 16 }}>
+                <Row gutter={12}>
+                  <Col span={12}>
+                    <Form.Item
+                      name={['processing', 'calibration', 'enabled']}
+                      label="Enable Calibration"
+                      valuePropName="checked"
+                    >
+                      <Switch checkedChildren="On" unCheckedChildren="Off" />
+                    </Form.Item>
+                  </Col>
+                  <Col span={12}>
+                    <Form.Item name={['processing', 'calibration', 'gamma_steps']} label="Gamma Steps">
+                      <InputNumber min={2} max={20} step={1} />
+                    </Form.Item>
+                  </Col>
+                </Row>
+                <Row gutter={12}>
+                  <Col span={12}>
+                    <Form.Item name={['processing', 'calibration', 'gamma_min']} label="Gamma Min">
+                      <InputNumber min={0.05} max={5} step={0.05} />
+                    </Form.Item>
+                  </Col>
+                  <Col span={12}>
+                    <Form.Item name={['processing', 'calibration', 'gamma_max']} label="Gamma Max">
+                      <InputNumber min={0.05} max={5} step={0.05} />
+                    </Form.Item>
+                  </Col>
+                </Row>
+                <Row gutter={12}>
+                  <Col span={8}>
+                    <Form.Item
+                      name={['processing', 'calibration', 'strip_width_mm']}
+                      label="Strip Width (mm)"
+                    >
+                      <InputNumber min={40} max={400} step={1} />
+                    </Form.Item>
+                  </Col>
+                  <Col span={8}>
+                    <Form.Item
+                      name={['processing', 'calibration', 'strip_height_mm']}
+                      label="Strip Height (mm)"
+                    >
+                      <InputNumber min={16} max={120} step={1} />
+                    </Form.Item>
+                  </Col>
+                  <Col span={8}>
+                    <Form.Item name={['processing', 'calibration', 'padding_mm']} label="Padding (mm)">
+                      <InputNumber min={0.5} max={10} step={0.5} />
+                    </Form.Item>
+                  </Col>
+                </Row>
+              </Card>
+
               <Card title="Experiment" size="small" style={{ marginBottom: 16 }}>
                 <Form.Item name={['experiment', 'name']} label="Name" rules={[{ required: true }]}>
                   <Input />
                 </Form.Item>
               </Card>
-
-              <Button
-                type="primary"
-                htmlType="submit"
-                loading={!!isRunning}
-                block
-                size="large"
-                style={{ marginBottom: 16 }}
-              >
-                {isRunning ? 'Processing...' : 'Generate Relief'}
-              </Button>
-
-              {isRunning && currentRunningJob && (
-                <div style={{ marginTop: 16 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Progress percent={currentRunningJob.progress} status="active" style={{ flex: 1 }} />
-                    <Popconfirm
-                      title="Cancel this job?"
-                      description="This will stop processing and no outputs will be produced."
-                      okText="Cancel"
-                      cancelText="Keep running"
-                      onConfirm={() => cancelJob.mutate(currentRunningJob.id)}
-                    >
-                      <Button
-                        aria-label="Cancel job"
-                        type="text"
-                        danger
-                        size="small"
-                        icon={<CloseCircleOutlined />}
-                      />
-                    </Popconfirm>
-                  </div>
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: 12,
-                    }}
-                  >
-                    <Typography.Text type="secondary">{currentRunningJob.message}</Typography.Text>
-                    <span />
-                  </div>
-                </div>
-              )}
 
               {submitJob.isError && (
                 <Alert
@@ -723,7 +1377,76 @@ function App() {
                   style={{ marginTop: 16 }}
                 />
               )}
-            </Form>
+              </Form>
+              </div>
+              <div
+                style={{
+                  padding: '16px 20px 20px',
+                  background: isDarkMode ? darkTokens.colorBgBase : lightTokens.colorBgBase,
+                  borderTop: `1px solid ${siderBorder}`,
+                  boxShadow: isDarkMode
+                    ? '0 -6px 12px rgba(15, 23, 42, 0.35)'
+                    : '0 -6px 12px rgba(15, 23, 42, 0.08)',
+                }}
+              >
+                <Button
+                  type="primary"
+                  htmlType="submit"
+                  form="config-form"
+                  loading={!!isRunning}
+                  disabled={!authUser}
+                  block
+                  size="large"
+                >
+                  {isRunning ? 'Processing...' : authUser ? 'Generate Relief' : 'Login to Generate'}
+                </Button>
+                {!authUser && (
+                  <Typography.Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+                    Use the Login button at top-right to submit and view account-specific jobs.
+                  </Typography.Text>
+                )}
+
+                {isRunning && currentRunningJob && (
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Progress
+                        percent={currentRunningJob.progress}
+                        status="active"
+                        style={{ flex: 1 }}
+                      />
+                      <Popconfirm
+                        title="Cancel this job?"
+                        description="This will stop processing and no outputs will be produced."
+                        okText="Cancel"
+                        cancelText="Keep running"
+                        onConfirm={() => cancelJob.mutate(currentRunningJob.id)}
+                      >
+                        <Button
+                          aria-label="Cancel job"
+                          type="text"
+                          danger
+                          size="small"
+                          icon={<CloseCircleOutlined />}
+                        />
+                      </Popconfirm>
+                    </div>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 12,
+                      }}
+                    >
+                      <Typography.Text type="secondary">
+                        {currentRunningJob.message}
+                      </Typography.Text>
+                      <span />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
           </Sider>
           <Content
             style={{
@@ -738,9 +1461,16 @@ function App() {
               style={{ height: '100%', padding: '10px 10px 0 10px' }}
               tabBarExtraContent={{
                 right: (
-                  <Popover content={settingsContent} title="Settings" trigger="click">
-                    <Button aria-label="Settings" icon={<SettingOutlined />} type="text" size="small" />
-                  </Popover>
+                  <Space size={4}>
+                    <Popover content={authContent} title="Account" trigger="click">
+                      <Button size="small" type="text">
+                        {authButtonLabel}
+                      </Button>
+                    </Popover>
+                    <Popover content={settingsContent} title="Settings" trigger="click">
+                      <Button aria-label="Settings" icon={<SettingOutlined />} type="text" size="small" />
+                    </Popover>
+                  </Space>
                 ),
               }}
               items={[
@@ -776,7 +1506,9 @@ function App() {
                   ),
                   children: (
                     <div style={{ padding: 16, height: 'calc(100vh - 130px)', overflowY: 'auto' }}>
-                      {jobHistory.length === 0 ? (
+                      {!authUser ? (
+                        <Empty description="Login to view your jobs." />
+                      ) : jobHistory.length === 0 ? (
                         <Empty description="No jobs run yet. Configure settings and click Generate Relief." />
                       ) : (
                         <Collapse
@@ -888,6 +1620,7 @@ function App() {
                                     <JobResultsPanel
                                       jobId={displayJob.id}
                                       isCompleted={displayJob.status === 'completed'}
+                                      authToken={authToken ?? undefined}
                                     />
                                   )}
                                 </div>
