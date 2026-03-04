@@ -1,16 +1,18 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import path from 'path'
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
+import path from "path";
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
-      leaflet: path.resolve(__dirname, 'node_modules/leaflet')
-    }
+      "@": path.resolve(__dirname, "./src"),
+      leaflet: path.resolve(__dirname, "node_modules/leaflet"),
+    },
   },
   optimizeDeps: {
-    include: ['leaflet', 'leaflet-edgebuffer']
-  }
-})
+    include: ["leaflet", "leaflet-edgebuffer"],
+  },
+});

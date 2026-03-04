@@ -1,42 +1,23 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import axios from "axios";
 import {
-  Layout,
-  Form,
-  Input,
-  InputNumber,
-  Button,
-  Card,
-  Typography,
-  Row,
-  Col,
-  Space,
-  Alert,
-  Select,
-  Switch,
-  Tabs,
-  Empty,
-  Progress,
-  Collapse,
-  Tag,
-  Badge,
-  Popover,
-  Popconfirm,
-  ConfigProvider,
-  theme,
-} from 'antd';
-import {
-  CheckCircleOutlined,
-  CloseCircleOutlined,
-  ClockCircleOutlined,
-  DeleteOutlined,
-  DownloadOutlined,
-  SyncOutlined,
-  SettingOutlined,
-} from '@ant-design/icons';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import axios from 'axios';
-import MapSelector from './components/MapSelector';
-import JobResultsPanel from './components/JobResultsPanel';
+  CheckCircle,
+  XCircle,
+  Clock,
+  Trash2,
+  Download,
+  RefreshCw,
+  Settings,
+  Search,
+  Loader2,
+  User,
+  Moon,
+  Sun,
+} from "lucide-react";
+
+import MapSelector from "./components/MapSelector";
+import JobResultsPanel from "./components/JobResultsPanel";
 import type {
   JobInfo,
   MachineProfile,
@@ -46,22 +27,59 @@ import type {
   AuthResponse,
   AuthUser,
   CustomProfilesResponse,
-} from './types';
+} from "./types";
 
-const { Header, Content, Sider } = Layout;
-const { Title, Text } = Typography;
-const { Option } = Select;
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
+const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 const GEOCODE_URL =
-  import.meta.env.VITE_GEOCODE_URL ?? 'https://nominatim.openstreetmap.org/search';
+  import.meta.env.VITE_GEOCODE_URL ??
+  "https://nominatim.openstreetmap.org/search";
 const COORD_DECIMALS = 5;
-const AUTH_TOKEN_KEY = 'elevation-relief.authToken.v1';
+const AUTH_TOKEN_KEY = "elevation-relief.authToken.v1";
 
 const FALLBACK_MACHINE_PROFILES: MachineProfile[] = [
   {
-    id: 'cricut-maker-3',
-    name: 'Cricut Maker 3',
+    id: "cricut-maker-3",
+    name: "Cricut Maker 3",
     bed_width_in: 12,
     bed_height_in: 12,
     sheet_margin_in: 0.25,
@@ -69,8 +87,8 @@ const FALLBACK_MACHINE_PROFILES: MachineProfile[] = [
     calibration_enabled_default: false,
   },
   {
-    id: 'laser-cutter',
-    name: 'Laser Cutter',
+    id: "laser-cutter",
+    name: "Laser Cutter",
     bed_width_in: 24,
     bed_height_in: 12,
     sheet_margin_in: 0.25,
@@ -81,28 +99,28 @@ const FALLBACK_MACHINE_PROFILES: MachineProfile[] = [
 
 const FALLBACK_MATERIAL_PROFILES: MaterialProfile[] = [
   {
-    id: 'birch-1-4-12x24',
+    id: "birch-1-4-12x24",
     name: '1/4" Birch (12x24)',
     sheet_width_in: 24,
     sheet_height_in: 12,
     layer_thickness_mm: 6.35,
   },
   {
-    id: 'birch-1-8-12x24',
+    id: "birch-1-8-12x24",
     name: '1/8" Birch (12x24)',
     sheet_width_in: 24,
     sheet_height_in: 12,
     layer_thickness_mm: 3.175,
   },
   {
-    id: 'birch-1-16-12x12',
+    id: "birch-1-16-12x12",
     name: '1/16" Birch (12x12)',
     sheet_width_in: 12,
     sheet_height_in: 12,
     layer_thickness_mm: 1.5875,
   },
   {
-    id: 'paper-0p004-letter',
+    id: "paper-0p004-letter",
     name: 'Paper 0.004" (Letter 8.5x11)',
     sheet_width_in: 11,
     sheet_height_in: 8.5,
@@ -111,19 +129,27 @@ const FALLBACK_MATERIAL_PROFILES: MaterialProfile[] = [
 ];
 
 const DEFAULT_CONFIG: PipelineConfig = {
-  experiment: { name: 'web_run_01', output_dir: 'results' },
-  region: { center_lat: 44.02383819213837, center_lon: -71.83153152465822, radius_m: 2000 },
+  experiment: { name: "web_run_01", output_dir: "results" },
+  region: {
+    center_lat: 44.02383819213837,
+    center_lon: -71.83153152465822,
+    radius_m: 2000,
+  },
   model: {
     width_inches: 5.0,
     height_inches: 5.0,
     layer_thickness_mm: 3.175,
     contour_interval_m: 50.0,
   },
-  data: { dem_source: 'glo_30', imagery_source: 'naip', imagery_resolution: '5m' },
+  data: {
+    dem_source: "glo_30",
+    imagery_source: "naip",
+    imagery_resolution: "5m",
+  },
   profiles: {
-    machine_id: 'laser-cutter',
-    machine_name: 'Laser Cutter',
-    material_id: 'birch-1-8-12x24',
+    machine_id: "laser-cutter",
+    machine_name: "Laser Cutter",
+    material_id: "birch-1-8-12x24",
     material_name: '1/8" Birch (12x24)',
   },
   processing: {
@@ -137,8 +163,8 @@ const DEFAULT_CONFIG: PipelineConfig = {
     min_part_area_sq_in: 0.015,
     calibration: {
       enabled: true,
-      mode: 'auto_pack',
-      pattern: 'gamma_ladder',
+      mode: "auto_pack",
+      pattern: "gamma_ladder",
       gamma_min: 0.7,
       gamma_max: 1.6,
       gamma_steps: 10,
@@ -156,144 +182,260 @@ const DEFAULT_CONFIG: PipelineConfig = {
       sheet_gap_in: 0.125,
     },
   },
-  export: { format: 'dxf', layers_per_file: 1 },
+  export: { format: "dxf", layers_per_file: 1 },
 };
 
 function formatTime(isoString: string): string {
-  if (!isoString) return '';
+  if (!isoString) return "";
   const date = new Date(isoString);
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 function getStatusIcon(status: string) {
   switch (status) {
-    case 'completed':
-      return <CheckCircleOutlined style={{ color: '#52c41a' }} />;
-    case 'failed':
-      return <CloseCircleOutlined style={{ color: '#ff4d4f' }} />;
-    case 'canceled':
-      return <CloseCircleOutlined style={{ color: '#94a3b8' }} />;
-    case 'running':
-      return <SyncOutlined spin style={{ color: '#1890ff' }} />;
-    case 'pending':
-      return <ClockCircleOutlined style={{ color: '#faad14' }} />;
+    case "completed":
+      return <CheckCircle className="h-4 w-4 text-chart-5" />;
+    case "failed":
+      return <XCircle className="h-4 w-4 text-destructive" />;
+    case "canceled":
+      return <XCircle className="h-4 w-4 text-muted-foreground" />;
+    case "running":
+      return <RefreshCw className="h-4 w-4 text-primary animate-spin" />;
+    case "pending":
+      return <Clock className="h-4 w-4 text-accent" />;
     default:
       return null;
   }
 }
 
-function getStatusTag(status: string) {
+function getStatusBadge(status: string) {
   switch (status) {
-    case 'completed':
-      return <Tag color="success">Completed</Tag>;
-    case 'failed':
-      return <Tag color="error">Failed</Tag>;
-    case 'canceled':
-      return <Tag>Cancelled</Tag>;
-    case 'running':
-      return <Tag color="processing">Running</Tag>;
-    case 'pending':
-      return <Tag color="warning">Pending</Tag>;
+    case "completed":
+      return <Badge variant="success">Completed</Badge>;
+    case "failed":
+      return <Badge variant="destructive">Failed</Badge>;
+    case "canceled":
+      return <Badge variant="outline">Cancelled</Badge>;
+    case "running":
+      return <Badge variant="processing">Running</Badge>;
+    case "pending":
+      return <Badge variant="warning">Pending</Badge>;
     default:
-      return <Tag>{status}</Tag>;
+      return <Badge variant="outline">{status}</Badge>;
   }
 }
 
+/* ---------- helpers for flat form state ---------- */
+
+function useFormState<T extends Record<string, unknown>>(initial: T) {
+  const [state, setState] = useState(initial);
+
+  const set = (path: string, value: unknown) => {
+    setState((prev) => {
+      const copy = structuredClone(prev) as Record<string, unknown>;
+      const keys = path.split(".");
+      let cur = copy;
+      for (let i = 0; i < keys.length - 1; i++) {
+        if (cur[keys[i]] === undefined || cur[keys[i]] === null) {
+          cur[keys[i]] = {};
+        }
+        cur = cur[keys[i]] as Record<string, unknown>;
+      }
+      cur[keys[keys.length - 1]] = value;
+      return copy as T;
+    });
+  };
+
+  const get = (path: string): unknown => {
+    const keys = path.split(".");
+    let cur: unknown = state;
+    for (const k of keys) {
+      if (cur === undefined || cur === null) return undefined;
+      cur = (cur as Record<string, unknown>)[k];
+    }
+    return cur;
+  };
+
+  const setMany = (updates: Record<string, unknown>) => {
+    setState((prev) => {
+      const copy = structuredClone(prev) as Record<string, unknown>;
+      for (const [path, value] of Object.entries(updates)) {
+        const keys = path.split(".");
+        let cur = copy;
+        for (let i = 0; i < keys.length - 1; i++) {
+          if (cur[keys[i]] === undefined || cur[keys[i]] === null) {
+            cur[keys[i]] = {};
+          }
+          cur = cur[keys[i]] as Record<string, unknown>;
+        }
+        cur[keys[keys.length - 1]] = value;
+      }
+      return copy as T;
+    });
+  };
+
+  return { state, set, get, setMany, setState };
+}
+
+/* ==================== FormField component ==================== */
+
+function FormField({
+  label,
+  htmlFor,
+  hint,
+  children,
+  className,
+}: {
+  label: string;
+  htmlFor?: string;
+  hint?: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={className}>
+      <Label htmlFor={htmlFor} className="mb-1.5 block text-sm">
+        {label}
+      </Label>
+      {children}
+      {hint && (
+        <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
+      )}
+    </div>
+  );
+}
+
+/* ==================== NumberInput wrapper ==================== */
+
+function NumberInput({
+  value,
+  onChange,
+  step,
+  min,
+  max,
+  disabled,
+  id,
+  className,
+  formatter,
+}: {
+  value: number | undefined;
+  onChange: (v: number) => void;
+  step?: number;
+  min?: number;
+  max?: number;
+  disabled?: boolean;
+  id?: string;
+  className?: string;
+  formatter?: (v: number) => string;
+}) {
+  const displayValue = value !== undefined && formatter ? formatter(value) : value ?? "";
+  return (
+    <Input
+      id={id}
+      type="number"
+      value={displayValue}
+      onChange={(e) => {
+        const v = parseFloat(e.target.value);
+        if (Number.isFinite(v)) onChange(v);
+      }}
+      step={step}
+      min={min}
+      max={max}
+      disabled={disabled}
+      className={className}
+    />
+  );
+}
+
+/* ==================== Main App ==================== */
+
 function App() {
-  const [form] = Form.useForm<PipelineConfig>();
+  const form = useFormState(DEFAULT_CONFIG as unknown as Record<string, unknown>);
+  const config = form.state as unknown as PipelineConfig;
+
   const queryClient = useQueryClient();
   const [expandedJobs, setExpandedJobs] = useState<string[]>([]);
-  const [activeTab, setActiveTab] = useState('map');
+  const [activeTab, setActiveTab] = useState("map");
   const [isDarkMode, setIsDarkMode] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [customMachineProfiles, setCustomMachineProfiles] = useState<MachineProfile[]>([]);
   const [customMaterialProfiles, setCustomMaterialProfiles] = useState<MaterialProfile[]>([]);
-  const [machineProfileNameInput, setMachineProfileNameInput] = useState('');
-  const [materialProfileNameInput, setMaterialProfileNameInput] = useState('');
-  const [authToken, setAuthToken] = useState<string | null>(() => localStorage.getItem(AUTH_TOKEN_KEY));
+  const [machineProfileNameInput, setMachineProfileNameInput] = useState("");
+  const [materialProfileNameInput, setMaterialProfileNameInput] = useState("");
+  const [authToken, setAuthToken] = useState<string | null>(() =>
+    localStorage.getItem(AUTH_TOKEN_KEY)
+  );
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
-  const [authEmail, setAuthEmail] = useState('');
-  const [authPassword, setAuthPassword] = useState('');
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
-  // tracks which input should drive derived updates
-  const lastEditedRef = useRef<'radius' | 'contour'>('radius');
-  // guards against feedback loops during form sync
+  const lastEditedRef = useRef<"radius" | "contour">("radius");
   const isInternalUpdate = useRef(false);
 
-  // watch relevant form values for map
-  const lat = Form.useWatch(['region', 'center_lat'], form) ?? DEFAULT_CONFIG.region.center_lat;
-  const lon = Form.useWatch(['region', 'center_lon'], form) ?? DEFAULT_CONFIG.region.center_lon;
-  const radius = Form.useWatch(['region', 'radius_m'], form) ?? DEFAULT_CONFIG.region.radius_m;
-  const widthIn =
-    Form.useWatch(['model', 'width_inches'], form) ?? DEFAULT_CONFIG.model.width_inches;
-  const heightIn =
-    Form.useWatch(['model', 'height_inches'], form) ?? DEFAULT_CONFIG.model.height_inches;
-  const thicknessMm =
-    Form.useWatch(['model', 'layer_thickness_mm'], form) ?? DEFAULT_CONFIG.model.layer_thickness_mm;
-  const contourInterval =
-    Form.useWatch(['model', 'contour_interval_m'], form) ?? DEFAULT_CONFIG.model.contour_interval_m;
-  const selectedMachineProfileId =
-    Form.useWatch(['profiles', 'machine_id'], form) ?? DEFAULT_CONFIG.profiles.machine_id;
-  const selectedMaterialProfileId =
-    Form.useWatch(['profiles', 'material_id'], form) ?? DEFAULT_CONFIG.profiles.material_id;
-  const bedWidthIn =
-    Form.useWatch(['processing', 'nesting', 'bed_width_in'], form) ??
-    DEFAULT_CONFIG.processing.nesting.bed_width_in;
-  const bedHeightIn =
-    Form.useWatch(['processing', 'nesting', 'bed_height_in'], form) ??
-    DEFAULT_CONFIG.processing.nesting.bed_height_in;
-  const sheetWidthIn =
-    Form.useWatch(['processing', 'nesting', 'sheet_width_in'], form) ??
-    DEFAULT_CONFIG.processing.nesting.sheet_width_in;
-  const sheetHeightIn =
-    Form.useWatch(['processing', 'nesting', 'sheet_height_in'], form) ??
-    DEFAULT_CONFIG.processing.nesting.sheet_height_in;
-  const sheetMarginIn =
-    Form.useWatch(['processing', 'nesting', 'sheet_margin_in'], form) ??
-    DEFAULT_CONFIG.processing.nesting.sheet_margin_in;
-  const sheetGapIn =
-    Form.useWatch(['processing', 'nesting', 'sheet_gap_in'], form) ??
-    DEFAULT_CONFIG.processing.nesting.sheet_gap_in;
-  const calibrationEnabled =
-    Form.useWatch(['processing', 'calibration', 'enabled'], form) ??
-    DEFAULT_CONFIG.processing.calibration.enabled;
+  // Dark mode class toggle
+  useEffect(() => {
+    const root = document.getElementById("root");
+    if (root) {
+      if (isDarkMode) {
+        root.classList.add("dark");
+      } else {
+        root.classList.remove("dark");
+      }
+    }
+  }, [isDarkMode]);
 
+  // Derived form values
+  const lat = (config.region.center_lat ?? DEFAULT_CONFIG.region.center_lat) as number;
+  const lon = (config.region.center_lon ?? DEFAULT_CONFIG.region.center_lon) as number;
+  const radius = (config.region.radius_m ?? DEFAULT_CONFIG.region.radius_m) as number;
+  const widthIn = (config.model.width_inches ?? DEFAULT_CONFIG.model.width_inches) as number;
+  const heightIn = (config.model.height_inches ?? DEFAULT_CONFIG.model.height_inches) as number;
+  const thicknessMm = (config.model.layer_thickness_mm ?? DEFAULT_CONFIG.model.layer_thickness_mm) as number;
+  const contourInterval = (config.model.contour_interval_m ?? DEFAULT_CONFIG.model.contour_interval_m) as number;
+  const selectedMachineProfileId = (config.profiles.machine_id ?? DEFAULT_CONFIG.profiles.machine_id) as string;
+  const selectedMaterialProfileId = (config.profiles.material_id ?? DEFAULT_CONFIG.profiles.material_id) as string;
+  const bedWidthIn = config.processing.nesting.bed_width_in;
+  const bedHeightIn = config.processing.nesting.bed_height_in;
+  const sheetWidthIn = config.processing.nesting.sheet_width_in;
+  const sheetHeightIn = config.processing.nesting.sheet_height_in;
+  const sheetMarginIn = config.processing.nesting.sheet_margin_in;
+  const sheetGapIn = config.processing.nesting.sheet_gap_in;
+  const calibrationEnabled = config.processing.calibration.enabled;
+
+  const formatCoord = (value: number) => {
+    if (!Number.isFinite(value)) return "";
+    const factor = 10 ** COORD_DECIMALS;
+    const truncated = Math.trunc(value * factor) / factor;
+    return truncated.toFixed(COORD_DECIMALS);
+  };
+
+  // ---- heartbeat ----
   useEffect(() => {
     let isActive = true;
     const ping = async () => {
       try {
-        await fetch(`${API_URL}/`, { cache: 'no-store' });
-      } catch (err) {
-        // ignore failures; this is a best-effort wake-up call
+        await fetch(`${API_URL}/`, { cache: "no-store" });
+      } catch (_) {
+        /* ignore */
       }
     };
     const startHeartbeat = () => {
       if (!isActive) return;
       ping();
     };
-
     startHeartbeat();
     const intervalId = window.setInterval(startHeartbeat, 9 * 60 * 1000);
-
     return () => {
       isActive = false;
       window.clearInterval(intervalId);
     };
   }, []);
-  const formatCoord = (value?: string | number) => {
-    if (value === undefined || value === null || value === '') return '';
-    const num = typeof value === 'number' ? value : Number(value);
-    if (!Number.isFinite(num)) return '';
-    const factor = 10 ** COORD_DECIMALS;
-    const truncated = Math.trunc(num * factor) / factor;
-    return truncated.toFixed(COORD_DECIMALS);
-  };
 
-  const parseCoord = (value?: string) => value?.replace(/[^\d.-]/g, '') ?? '';
-
+  // ---- Profile defaults ----
   const { data: profileDefaults } = useQuery({
-    queryKey: ['profileDefaults'],
+    queryKey: ["profileDefaults"],
     queryFn: async () => {
       const res = await axios.get(`${API_URL}/profiles/defaults`);
       return res.data as ProfileDefaultsResponse;
@@ -301,27 +443,30 @@ function App() {
     staleTime: 30 * 60 * 1000,
   });
 
-  const builtInMachineProfiles = profileDefaults?.machine_profiles ?? FALLBACK_MACHINE_PROFILES;
-  const builtInMaterialProfiles = profileDefaults?.material_profiles ?? FALLBACK_MATERIAL_PROFILES;
+  const builtInMachineProfiles =
+    profileDefaults?.machine_profiles ?? FALLBACK_MACHINE_PROFILES;
+  const builtInMaterialProfiles =
+    profileDefaults?.material_profiles ?? FALLBACK_MATERIAL_PROFILES;
 
+  // ---- Auth persistence ----
   useEffect(() => {
-    if (authToken) {
-      localStorage.setItem(AUTH_TOKEN_KEY, authToken);
-    } else {
-      localStorage.removeItem(AUTH_TOKEN_KEY);
-    }
+    if (authToken) localStorage.setItem(AUTH_TOKEN_KEY, authToken);
+    else localStorage.removeItem(AUTH_TOKEN_KEY);
   }, [authToken]);
 
   const authHeaders = useMemo(
     () => (authToken ? { Authorization: `Bearer ${authToken}` } : undefined),
-    [authToken],
+    [authToken]
   );
 
+  // ---- Auth queries ----
   const authMeQuery = useQuery({
-    queryKey: ['authMe', authToken],
+    queryKey: ["authMe", authToken],
     queryFn: async () => {
       if (!authHeaders) return null;
-      const res = await axios.get(`${API_URL}/auth/me`, { headers: authHeaders });
+      const res = await axios.get(`${API_URL}/auth/me`, {
+        headers: authHeaders,
+      });
       return res.data as AuthUser;
     },
     enabled: !!authToken,
@@ -329,44 +474,43 @@ function App() {
   });
 
   const customProfilesQuery = useQuery({
-    queryKey: ['customProfiles', authToken],
+    queryKey: ["customProfiles", authToken],
     queryFn: async () => {
       if (!authHeaders) return null;
-      const res = await axios.get(`${API_URL}/profiles/custom`, { headers: authHeaders });
+      const res = await axios.get(`${API_URL}/profiles/custom`, {
+        headers: authHeaders,
+      });
       return res.data as CustomProfilesResponse;
     },
     enabled: !!authToken,
     retry: false,
   });
-  const { refetch: refetchCustomProfiles, isFetching: isCustomProfilesLoading } = customProfilesQuery;
+  const { refetch: refetchCustomProfiles, isFetching: isCustomProfilesLoading } =
+    customProfilesQuery;
 
   useEffect(() => {
-    if (authMeQuery.data) {
-      setAuthUser(authMeQuery.data);
-    }
+    if (authMeQuery.data) setAuthUser(authMeQuery.data);
   }, [authMeQuery.data]);
-
   useEffect(() => {
     if (authMeQuery.isError) {
       setAuthToken(null);
       setAuthUser(null);
     }
   }, [authMeQuery.isError]);
-
   useEffect(() => {
     if (customProfilesQuery.data) {
       setCustomMachineProfiles(customProfilesQuery.data.machine_profiles ?? []);
-      setCustomMaterialProfiles(customProfilesQuery.data.material_profiles ?? []);
+      setCustomMaterialProfiles(
+        customProfilesQuery.data.material_profiles ?? []
+      );
     }
   }, [customProfilesQuery.data]);
-
   useEffect(() => {
     if (customProfilesQuery.isError) {
       setCustomMachineProfiles([]);
       setCustomMaterialProfiles([]);
     }
   }, [customProfilesQuery.isError]);
-
   useEffect(() => {
     if (!authToken) {
       setAuthUser(null);
@@ -377,60 +521,33 @@ function App() {
 
   const machineProfiles = useMemo(
     () => [...builtInMachineProfiles, ...customMachineProfiles],
-    [builtInMachineProfiles, customMachineProfiles],
+    [builtInMachineProfiles, customMachineProfiles]
   );
   const materialProfiles = useMemo(
     () => [...builtInMaterialProfiles, ...customMaterialProfiles],
-    [builtInMaterialProfiles, customMaterialProfiles],
+    [builtInMaterialProfiles, customMaterialProfiles]
   );
 
+  // ---- Profile application ----
   const applyMachineProfile = (profile: MachineProfile) => {
-    const currentProfiles = form.getFieldValue('profiles') ?? {};
-    const currentNesting = form.getFieldValue(['processing', 'nesting']) ?? {};
-    const currentCalibration = form.getFieldValue(['processing', 'calibration']) ?? {};
-    form.setFieldsValue({
-      profiles: {
-        ...currentProfiles,
-        machine_id: profile.id,
-        machine_name: profile.name,
-      },
-      processing: {
-        nesting: {
-          ...currentNesting,
-          bed_width_in: profile.bed_width_in,
-          bed_height_in: profile.bed_height_in,
-          sheet_margin_in: profile.sheet_margin_in,
-          sheet_gap_in: profile.sheet_gap_in,
-        },
-        calibration: {
-          ...currentCalibration,
-          enabled: profile.calibration_enabled_default,
-        },
-      },
+    form.setMany({
+      "profiles.machine_id": profile.id,
+      "profiles.machine_name": profile.name,
+      "processing.nesting.bed_width_in": profile.bed_width_in,
+      "processing.nesting.bed_height_in": profile.bed_height_in,
+      "processing.nesting.sheet_margin_in": profile.sheet_margin_in,
+      "processing.nesting.sheet_gap_in": profile.sheet_gap_in,
+      "processing.calibration.enabled": profile.calibration_enabled_default,
     });
   };
 
   const applyMaterialProfile = (profile: MaterialProfile) => {
-    const currentProfiles = form.getFieldValue('profiles') ?? {};
-    const currentNesting = form.getFieldValue(['processing', 'nesting']) ?? {};
-    const currentModel = form.getFieldValue('model') ?? {};
-    form.setFieldsValue({
-      profiles: {
-        ...currentProfiles,
-        material_id: profile.id,
-        material_name: profile.name,
-      },
-      model: {
-        ...currentModel,
-        layer_thickness_mm: profile.layer_thickness_mm,
-      },
-      processing: {
-        nesting: {
-          ...currentNesting,
-          sheet_width_in: profile.sheet_width_in,
-          sheet_height_in: profile.sheet_height_in,
-        },
-      },
+    form.setMany({
+      "profiles.material_id": profile.id,
+      "profiles.material_name": profile.name,
+      "model.layer_thickness_mm": profile.layer_thickness_mm,
+      "processing.nesting.sheet_width_in": profile.sheet_width_in,
+      "processing.nesting.sheet_height_in": profile.sheet_height_in,
     });
   };
 
@@ -444,18 +561,26 @@ function App() {
     if (profile) applyMaterialProfile(profile);
   };
 
-  const selectedMachineIsCustom = !!selectedMachineProfileId?.startsWith('custom-machine-');
-  const selectedMaterialIsCustom = !!selectedMaterialProfileId?.startsWith('custom-material-');
+  const selectedMachineIsCustom = !!selectedMachineProfileId?.startsWith(
+    "custom-machine-"
+  );
+  const selectedMaterialIsCustom = !!selectedMaterialProfileId?.startsWith(
+    "custom-material-"
+  );
 
+  // ---- Profile save/delete ----
   const saveMachineProfile = async () => {
     if (!authHeaders) {
-      setAuthError('Please login to save profiles.');
+      setAuthError("Please login to save profiles.");
       return;
     }
-    const existing = machineProfiles.find((item) => item.id === selectedMachineProfileId);
-    const name = machineProfileNameInput.trim() || existing?.name || 'Custom Machine';
+    const existing = machineProfiles.find(
+      (item) => item.id === selectedMachineProfileId
+    );
+    const name =
+      machineProfileNameInput.trim() || existing?.name || "Custom Machine";
     const payload = {
-      kind: 'machine',
+      kind: "machine",
       name,
       data: {
         bed_width_in: Number(bedWidthIn),
@@ -466,30 +591,44 @@ function App() {
       },
     };
     try {
-      if (selectedMachineIsCustom && !machineProfileNameInput.trim() && selectedMachineProfileId) {
-        await axios.put(`${API_URL}/profiles/custom/${selectedMachineProfileId}`, payload, {
+      if (
+        selectedMachineIsCustom &&
+        !machineProfileNameInput.trim() &&
+        selectedMachineProfileId
+      ) {
+        await axios.put(
+          `${API_URL}/profiles/custom/${selectedMachineProfileId}`,
+          payload,
+          { headers: authHeaders }
+        );
+      } else {
+        await axios.post(`${API_URL}/profiles/custom`, payload, {
           headers: authHeaders,
         });
-      } else {
-        await axios.post(`${API_URL}/profiles/custom`, payload, { headers: authHeaders });
       }
       setAuthError(null);
-      setMachineProfileNameInput('');
+      setMachineProfileNameInput("");
       await refetchCustomProfiles();
-    } catch (error: any) {
-      setAuthError(error?.response?.data?.detail ?? 'Unable to save machine profile.');
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { detail?: string } } };
+      setAuthError(
+        err?.response?.data?.detail ?? "Unable to save machine profile."
+      );
     }
   };
 
   const saveMaterialProfile = async () => {
     if (!authHeaders) {
-      setAuthError('Please login to save profiles.');
+      setAuthError("Please login to save profiles.");
       return;
     }
-    const existing = materialProfiles.find((item) => item.id === selectedMaterialProfileId);
-    const name = materialProfileNameInput.trim() || existing?.name || 'Custom Material';
+    const existing = materialProfiles.find(
+      (item) => item.id === selectedMaterialProfileId
+    );
+    const name =
+      materialProfileNameInput.trim() || existing?.name || "Custom Material";
     const payload = {
-      kind: 'material',
+      kind: "material",
       name,
       data: {
         sheet_width_in: Number(sheetWidthIn),
@@ -503,56 +642,78 @@ function App() {
         !materialProfileNameInput.trim() &&
         selectedMaterialProfileId
       ) {
-        await axios.put(`${API_URL}/profiles/custom/${selectedMaterialProfileId}`, payload, {
+        await axios.put(
+          `${API_URL}/profiles/custom/${selectedMaterialProfileId}`,
+          payload,
+          { headers: authHeaders }
+        );
+      } else {
+        await axios.post(`${API_URL}/profiles/custom`, payload, {
           headers: authHeaders,
         });
-      } else {
-        await axios.post(`${API_URL}/profiles/custom`, payload, { headers: authHeaders });
       }
       setAuthError(null);
-      setMaterialProfileNameInput('');
+      setMaterialProfileNameInput("");
       await refetchCustomProfiles();
-    } catch (error: any) {
-      setAuthError(error?.response?.data?.detail ?? 'Unable to save material profile.');
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { detail?: string } } };
+      setAuthError(
+        err?.response?.data?.detail ?? "Unable to save material profile."
+      );
     }
   };
 
   const deleteSelectedCustomMachineProfile = async () => {
-    if (!authHeaders || !selectedMachineProfileId || !selectedMachineIsCustom) return;
+    if (!authHeaders || !selectedMachineProfileId || !selectedMachineIsCustom)
+      return;
     try {
-      await axios.delete(`${API_URL}/profiles/custom/${selectedMachineProfileId}`, {
-        headers: authHeaders,
-        params: { kind: 'machine' },
-      });
+      await axios.delete(
+        `${API_URL}/profiles/custom/${selectedMachineProfileId}`,
+        { headers: authHeaders, params: { kind: "machine" } }
+      );
       setAuthError(null);
       await refetchCustomProfiles();
       const fallback =
-        builtInMachineProfiles.find((item) => item.id === DEFAULT_CONFIG.profiles.machine_id) ??
-        builtInMachineProfiles[0];
+        builtInMachineProfiles.find(
+          (item) => item.id === DEFAULT_CONFIG.profiles.machine_id
+        ) ?? builtInMachineProfiles[0];
       if (fallback) applyMachineProfile(fallback);
-    } catch (error: any) {
-      setAuthError(error?.response?.data?.detail ?? 'Unable to delete machine profile.');
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { detail?: string } } };
+      setAuthError(
+        err?.response?.data?.detail ?? "Unable to delete machine profile."
+      );
     }
   };
 
   const deleteSelectedCustomMaterialProfile = async () => {
-    if (!authHeaders || !selectedMaterialProfileId || !selectedMaterialIsCustom) return;
+    if (
+      !authHeaders ||
+      !selectedMaterialProfileId ||
+      !selectedMaterialIsCustom
+    )
+      return;
     try {
-      await axios.delete(`${API_URL}/profiles/custom/${selectedMaterialProfileId}`, {
-        headers: authHeaders,
-        params: { kind: 'material' },
-      });
+      await axios.delete(
+        `${API_URL}/profiles/custom/${selectedMaterialProfileId}`,
+        { headers: authHeaders, params: { kind: "material" } }
+      );
       setAuthError(null);
       await refetchCustomProfiles();
       const fallback =
-        builtInMaterialProfiles.find((item) => item.id === DEFAULT_CONFIG.profiles.material_id) ??
-        builtInMaterialProfiles[0];
+        builtInMaterialProfiles.find(
+          (item) => item.id === DEFAULT_CONFIG.profiles.material_id
+        ) ?? builtInMaterialProfiles[0];
       if (fallback) applyMaterialProfile(fallback);
-    } catch (error: any) {
-      setAuthError(error?.response?.data?.detail ?? 'Unable to delete material profile.');
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { detail?: string } } };
+      setAuthError(
+        err?.response?.data?.detail ?? "Unable to delete material profile."
+      );
     }
   };
 
+  // ---- Auth mutations ----
   const signup = useMutation({
     mutationFn: async () => {
       const res = await axios.post(`${API_URL}/auth/signup`, {
@@ -565,12 +726,13 @@ function App() {
       setAuthToken(data.token);
       setAuthUser(data.user);
       setAuthError(null);
-      setAuthPassword('');
-      queryClient.invalidateQueries({ queryKey: ['customProfiles'] });
-      queryClient.invalidateQueries({ queryKey: ['allJobs'] });
+      setAuthPassword("");
+      queryClient.invalidateQueries({ queryKey: ["customProfiles"] });
+      queryClient.invalidateQueries({ queryKey: ["allJobs"] });
     },
-    onError: (error: any) => {
-      setAuthError(error?.response?.data?.detail ?? 'Signup failed.');
+    onError: (error: unknown) => {
+      const err = error as { response?: { data?: { detail?: string } } };
+      setAuthError(err?.response?.data?.detail ?? "Signup failed.");
     },
   });
 
@@ -586,12 +748,13 @@ function App() {
       setAuthToken(data.token);
       setAuthUser(data.user);
       setAuthError(null);
-      setAuthPassword('');
-      queryClient.invalidateQueries({ queryKey: ['customProfiles'] });
-      queryClient.invalidateQueries({ queryKey: ['allJobs'] });
+      setAuthPassword("");
+      queryClient.invalidateQueries({ queryKey: ["customProfiles"] });
+      queryClient.invalidateQueries({ queryKey: ["allJobs"] });
     },
-    onError: (error: any) => {
-      setAuthError(error?.response?.data?.detail ?? 'Login failed.');
+    onError: (error: unknown) => {
+      const err = error as { response?: { data?: { detail?: string } } };
+      setAuthError(err?.response?.data?.detail ?? "Login failed.");
     },
   });
 
@@ -600,49 +763,57 @@ function App() {
       if (authHeaders) {
         await axios.post(`${API_URL}/auth/logout`, {}, { headers: authHeaders });
       }
-    } catch (err) {
-      // ignore network logout errors; local token clear is source of truth
+    } catch (_) {
+      /* ignore */
     }
     setAuthToken(null);
     setAuthUser(null);
     setCustomMachineProfiles([]);
     setCustomMaterialProfiles([]);
-    queryClient.invalidateQueries({ queryKey: ['allJobs'] });
+    queryClient.invalidateQueries({ queryKey: ["allJobs"] });
   };
 
-  // mutation: submit job
+  // ---- Job mutations ----
   const submitJob = useMutation({
     mutationFn: async (values: PipelineConfig) => {
-      if (!authHeaders) throw new Error('Please login to submit jobs.');
-      const res = await axios.post(`${API_URL}/jobs`, values, { headers: authHeaders });
+      if (!authHeaders) throw new Error("Please login to submit jobs.");
+      const res = await axios.post(`${API_URL}/jobs`, values, {
+        headers: authHeaders,
+      });
       return res.data as JobInfo;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['allJobs'] });
-      setActiveTab('jobs');
+      queryClient.invalidateQueries({ queryKey: ["allJobs"] });
+      setActiveTab("jobs");
     },
   });
 
   const cancelJob = useMutation({
     mutationFn: async (jobId: string) => {
-      if (!authHeaders) throw new Error('Please login.');
-      const res = await axios.post(`${API_URL}/jobs/${jobId}/cancel`, {}, { headers: authHeaders });
+      if (!authHeaders) throw new Error("Please login.");
+      const res = await axios.post(
+        `${API_URL}/jobs/${jobId}/cancel`,
+        {},
+        { headers: authHeaders }
+      );
       return res.data as { status: string; message: string };
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['allJobs'] });
+      queryClient.invalidateQueries({ queryKey: ["allJobs"] });
     },
   });
 
   const deleteJob = useMutation({
     mutationFn: async (jobId: string) => {
-      if (!authHeaders) throw new Error('Please login.');
-      const res = await axios.delete(`${API_URL}/jobs/${jobId}`, { headers: authHeaders });
+      if (!authHeaders) throw new Error("Please login.");
+      const res = await axios.delete(`${API_URL}/jobs/${jobId}`, {
+        headers: authHeaders,
+      });
       return res.data;
     },
     onSuccess: (_, jobId) => {
       setExpandedJobs((prev) => prev.filter((id) => id !== jobId));
-      queryClient.invalidateQueries({ queryKey: ['allJobs'] });
+      queryClient.invalidateQueries({ queryKey: ["allJobs"] });
     },
   });
 
@@ -650,12 +821,14 @@ function App() {
     deleteJob.mutate(jobId);
   };
 
-  // query: get all jobs status (for polling running jobs)
+  // ---- Jobs query ----
   const { data: allJobs, isError: allJobsError } = useQuery({
-    queryKey: ['allJobs', authToken],
+    queryKey: ["allJobs", authToken],
     queryFn: async () => {
       if (!authHeaders) return {};
-      const res = await axios.get(`${API_URL}/jobs`, { headers: authHeaders });
+      const res = await axios.get(`${API_URL}/jobs`, {
+        headers: authHeaders,
+      });
       return res.data as Record<string, JobInfo>;
     },
     enabled: !!authToken,
@@ -665,7 +838,7 @@ function App() {
       if (!jobs || ids.length === 0) return 2000;
       const hasRunning = ids.some((id) => {
         const job = jobs[id];
-        return job && (job.status === 'running' || job.status === 'pending');
+        return job && (job.status === "running" || job.status === "pending");
       });
       return hasRunning ? 2000 : false;
     },
@@ -681,30 +854,29 @@ function App() {
     return entries.map(([id]) => id);
   }, [allJobs]);
 
-  // auto-expand and switch to jobs tab when a job completes
   useEffect(() => {
     if (allJobs && jobHistory.length > 0) {
       const latestJob = allJobs[jobHistory[0]];
-      if (latestJob?.status === 'completed') {
-        setExpandedJobs((prev) => (prev.includes(latestJob.id) ? prev : [latestJob.id, ...prev]));
-        setActiveTab('jobs');
+      if (latestJob?.status === "completed") {
+        setExpandedJobs((prev) =>
+          prev.includes(latestJob.id) ? prev : [latestJob.id, ...prev]
+        );
+        setActiveTab("jobs");
       }
     }
   }, [allJobs, jobHistory]);
 
-  const normalizeLongitude = (lon: number) => {
-    const wrapped = ((lon + 180) % 360 + 360) % 360 - 180;
+  const normalizeLongitude = (lonVal: number) => {
+    const wrapped = (((lonVal + 180) % 360) + 360) % 360 - 180;
     if (Object.is(wrapped, -180)) return 180;
     return wrapped;
   };
 
   const handleMapCoords = (newLat: number, newLon: number) => {
-    lastEditedRef.current = 'radius';
-    form.setFieldsValue({
-      region: {
-        center_lat: newLat,
-        center_lon: normalizeLongitude(newLon),
-      },
+    lastEditedRef.current = "radius";
+    form.setMany({
+      "region.center_lat": newLat,
+      "region.center_lon": normalizeLongitude(newLon),
     });
   };
 
@@ -714,930 +886,1177 @@ function App() {
     setSearchError(null);
     try {
       const params = new URLSearchParams({
-        format: 'json',
+        format: "json",
         q: query.trim(),
-        limit: '1',
+        limit: "1",
       });
       const res = await fetch(`${GEOCODE_URL}?${params.toString()}`, {
-        headers: { 'Accept-Language': 'en' },
+        headers: { "Accept-Language": "en" },
       });
-      if (!res.ok) {
-        throw new Error(`Search failed (${res.status})`);
-      }
+      if (!res.ok) throw new Error(`Search failed (${res.status})`);
       const data = await res.json();
       if (!Array.isArray(data) || data.length === 0) {
-        setSearchError('No results found. Try a different query.');
+        setSearchError("No results found. Try a different query.");
         return;
       }
       const result = data[0];
       const newLat = Number(result.lat);
       const newLon = Number(result.lon);
       if (!Number.isFinite(newLat) || !Number.isFinite(newLon)) {
-        setSearchError('Search returned invalid coordinates.');
+        setSearchError("Search returned invalid coordinates.");
         return;
       }
       handleMapCoords(newLat, newLon);
-      setActiveTab('map');
-    } catch (err) {
-      setSearchError('Unable to search location. Please try again.');
+      setActiveTab("map");
+    } catch (_) {
+      setSearchError("Unable to search location. Please try again.");
     } finally {
       setSearchLoading(false);
     }
   };
 
+  // ---- Radius / contour coupling ----
   useEffect(() => {
     if (isInternalUpdate.current) return;
     if (!widthIn || !radius || !thicknessMm) return;
 
-    // derive scale to keep physical layer thickness consistent with contour interval
     const widthMm = widthIn * 25.4;
     const scaleMmPerM = widthMm / (2 * radius);
 
-    if (lastEditedRef.current === 'radius') {
+    if (lastEditedRef.current === "radius") {
       const newContour = thicknessMm / scaleMmPerM;
-      if (Number.isFinite(newContour) && Math.abs(newContour - contourInterval) > 0.01) {
+      if (
+        Number.isFinite(newContour) &&
+        Math.abs(newContour - contourInterval) > 0.01
+      ) {
         isInternalUpdate.current = true;
-        form.setFieldsValue({ model: { contour_interval_m: Number(newContour.toFixed(2)) } });
+        form.set("model.contour_interval_m", Number(newContour.toFixed(2)));
         setTimeout(() => {
           isInternalUpdate.current = false;
         }, 0);
       }
     } else {
-      const newRadius = (contourInterval * widthMm) / (2 * thicknessMm);
+      const newRadius =
+        (contourInterval * widthMm) / (2 * thicknessMm);
       if (Number.isFinite(newRadius) && Math.abs(newRadius - radius) > 0.5) {
         isInternalUpdate.current = true;
-        form.setFieldsValue({ region: { radius_m: Number(newRadius.toFixed(1)) } });
+        form.set("region.radius_m", Number(newRadius.toFixed(1)));
         setTimeout(() => {
           isInternalUpdate.current = false;
         }, 0);
       }
     }
 
-    // enforce square model to keep X/Y scaling consistent
     if (widthIn !== heightIn) {
       isInternalUpdate.current = true;
-      form.setFieldsValue({ model: { height_inches: widthIn } });
+      form.set("model.height_inches", widthIn);
       setTimeout(() => {
         isInternalUpdate.current = false;
       }, 0);
     }
   }, [widthIn, heightIn, radius, thicknessMm, contourInterval, form]);
 
-  const handleFinish = (values: PipelineConfig) => {
-    // deep merge logic fixes: processing is an object, so { ...processing } is a shallow merge.
-    // if values.processing doesn't contain smoothing_sigma (which isn't in the form), it will be lost if we just overwrite.
-    // we must merge nested objects carefully.
-
-    // 1. merge processing
+  const handleFinish = (e: FormEvent) => {
+    e.preventDefault();
     const mergedProcessing = {
       ...DEFAULT_CONFIG.processing,
-      ...values.processing,
+      ...config.processing,
       calibration: {
         ...DEFAULT_CONFIG.processing.calibration,
-        ...(values.processing?.calibration || {}),
+        ...(config.processing?.calibration || {}),
       },
       nesting: {
         ...DEFAULT_CONFIG.processing.nesting,
-        ...(values.processing?.nesting || {}),
+        ...(config.processing?.nesting || {}),
       },
     };
-
     const payload: PipelineConfig = {
-      experiment: { ...DEFAULT_CONFIG.experiment, ...values.experiment },
-      region: { ...DEFAULT_CONFIG.region, ...values.region },
-      model: { ...DEFAULT_CONFIG.model, ...values.model },
-      data: { ...DEFAULT_CONFIG.data, ...values.data },
-      profiles: { ...DEFAULT_CONFIG.profiles, ...(values.profiles || {}) },
+      experiment: { ...DEFAULT_CONFIG.experiment, ...config.experiment },
+      region: { ...DEFAULT_CONFIG.region, ...config.region },
+      model: { ...DEFAULT_CONFIG.model, ...config.model },
+      data: { ...DEFAULT_CONFIG.data, ...config.data },
+      profiles: { ...DEFAULT_CONFIG.profiles, ...(config.profiles || {}) },
       processing: mergedProcessing,
-      export: { ...DEFAULT_CONFIG.export, ...values.export },
+      export: { ...DEFAULT_CONFIG.export, ...config.export },
     };
     submitJob.mutate(payload);
   };
 
-  const currentRunningJob = jobHistory.length > 0 ? allJobs?.[jobHistory[0]] : null;
+  const currentRunningJob =
+    jobHistory.length > 0 ? allJobs?.[jobHistory[0]] : null;
   const isRunning =
     submitJob.isPending ||
     (currentRunningJob &&
-      (currentRunningJob.status === 'running' || currentRunningJob.status === 'pending'));
+      (currentRunningJob.status === "running" ||
+        currentRunningJob.status === "pending"));
 
-  const handleCollapseChange = (keys: string | string[]) => {
-    const keyArray = Array.isArray(keys) ? keys : [keys];
-    setExpandedJobs(keyArray);
+  const authButtonLabel = authUser ? authUser.email : "Login";
+
+  const setField = (path: string) => (value: unknown) => {
+    if (isInternalUpdate.current) return;
+    if (
+      path === "region.radius_m" ||
+      path === "model.width_inches" ||
+      path === "model.layer_thickness_mm"
+    ) {
+      lastEditedRef.current = "radius";
+    }
+    if (path === "model.contour_interval_m") {
+      lastEditedRef.current = "contour";
+    }
+    form.set(path, value);
   };
 
-  const lightTokens = {
-    colorPrimary: '#3B82F6',
-    colorBgBase: '#F8FAFC',
-    colorBgContainer: '#FFFFFF',
-    colorText: '#0F172A',
-    colorTextSecondary: '#475569',
-    colorBorder: '#E2E8F0',
-    colorFillSecondary: '#F1F5F9',
-    colorLink: '#2563EB',
-  };
-
-  const darkTokens = {
-    colorPrimary: '#60A5FA',
-    colorBgBase: '#0B1220',
-    colorBgContainer: '#111827',
-    colorText: '#E2E8F0',
-    colorTextSecondary: '#94A3B8',
-    colorBorder: '#1F2937',
-    colorFillSecondary: '#0F172A',
-    colorLink: '#93C5FD',
-  };
-
-  const headerBg = isDarkMode ? '#0F172A' : '#1E3A8A';
-  const headerText = '#FFFFFF';
-  const siderBorder = isDarkMode ? '#1F2937' : '#E2E8F0';
-  const settingsContent = (
-    <div style={{ minWidth: 200 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Text>Dark Mode</Text>
-        <Switch
-          checked={isDarkMode}
-          onChange={setIsDarkMode}
-          checkedChildren="On"
-          unCheckedChildren="Off"
-        />
-      </div>
-    </div>
-  );
-  const authContent = (
-    <div style={{ minWidth: 240 }}>
-      {!authUser ? (
-        <>
-          <Space.Compact style={{ width: '100%', marginBottom: 8 }}>
-            <Input
-              placeholder="Email"
-              value={authEmail}
-              onChange={(event) => setAuthEmail(event.target.value)}
-            />
-          </Space.Compact>
-          <Space.Compact style={{ width: '100%', marginBottom: 8 }}>
-            <Input.Password
-              placeholder="Password"
-              value={authPassword}
-              onChange={(event) => setAuthPassword(event.target.value)}
-              onPressEnter={() => login.mutate()}
-            />
-          </Space.Compact>
-          <Space>
-            <Button size="small" onClick={() => login.mutate()} loading={login.isPending}>
-              Login
-            </Button>
-            <Button size="small" onClick={() => signup.mutate()} loading={signup.isPending}>
-              Sign Up
-            </Button>
-          </Space>
-        </>
-      ) : (
-        <Space direction="vertical" size={8}>
-          <Text type="secondary">Signed in as {authUser.email}</Text>
-          <Button size="small" onClick={handleLogout}>
-            Logout
-          </Button>
-        </Space>
-      )}
-      {authError && (
-        <Typography.Text type="danger" style={{ display: 'block', marginTop: 8 }}>
-          {authError}
-        </Typography.Text>
-      )}
-    </div>
-  );
-  const authButtonLabel = authUser ? authUser.email : 'Login';
-  const machineProfileOptions = [
-    {
-      label: 'Built-in',
-      options: builtInMachineProfiles.map((profile) => ({
-        value: profile.id,
-        label: profile.name,
-      })),
-    },
-    {
-      label: 'Account',
-      options: customMachineProfiles.map((profile) => ({
-        value: profile.id,
-        label: `${profile.name} (Saved)`,
-      })),
-    },
-  ];
-  const materialProfileOptions = [
-    {
-      label: 'Built-in',
-      options: builtInMaterialProfiles.map((profile) => ({
-        value: profile.id,
-        label: profile.name,
-      })),
-    },
-    {
-      label: 'Account',
-      options: customMaterialProfiles.map((profile) => ({
-        value: profile.id,
-        label: `${profile.name} (Saved)`,
-      })),
-    },
-  ];
+  const disabled = !!isRunning;
 
   return (
-    <ConfigProvider
-      theme={{
-        algorithm: isDarkMode ? theme.darkAlgorithm : theme.defaultAlgorithm,
-        token: isDarkMode ? darkTokens : lightTokens,
-      }}
-    >
-      <Layout
-        style={{
-          height: '100vh',
-          background: isDarkMode ? darkTokens.colorBgBase : lightTokens.colorBgBase,
-        }}
-      >
-        <Header
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            background: headerBg,
-          }}
-        >
-          <Title level={3} style={{ color: headerText, margin: 0 }}>
-            Elevation Relief Generator
-          </Title>
-        </Header>
-        <Layout>
-          <Sider
-            width={400}
-            theme={isDarkMode ? 'dark' : 'light'}
-            style={{ overflow: 'hidden', padding: 0, borderRight: `1px solid ${siderBorder}` }}
-          >
-            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-              <div style={{ flex: 1, overflowY: 'auto', padding: 20, boxSizing: 'border-box' }}>
-              <Form
-                id="config-form"
-                form={form}
-                layout="vertical"
-                initialValues={DEFAULT_CONFIG}
-                onFinish={handleFinish}
-                onValuesChange={(changedValues) => {
-                  if (isInternalUpdate.current) return;
-                  // update last edited field to resolve radius/contour coupling
-                  if (changedValues?.region?.radius_m !== undefined) {
-                    lastEditedRef.current = 'radius';
-                  }
-                  if (changedValues?.model?.contour_interval_m !== undefined) {
-                    lastEditedRef.current = 'contour';
-                  }
-                  if (changedValues?.model?.width_inches !== undefined) {
-                    lastEditedRef.current = 'radius';
-                  }
-                  if (changedValues?.model?.layer_thickness_mm !== undefined) {
-                    lastEditedRef.current = 'radius';
-                  }
-                }}
-                disabled={!!isRunning}
+    <div className="flex h-screen flex-col bg-background text-foreground font-sans">
+      {/* ===== Header ===== */}
+      <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-primary px-5">
+        <h1 className="text-lg font-bold tracking-tight text-primary-foreground font-serif">
+          TopoCut Studio
+        </h1>
+        <div className="flex items-center gap-2">
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-primary-foreground hover:bg-primary-foreground/10"
               >
-              <Card title="Region" size="small" style={{ marginBottom: 16 }}>
-                <Form.Item label="Search location">
-                  <Input.Search
-                    placeholder="Search a place or address"
-                    allowClear
-                    enterButton={<Button type="default">Search</Button>}
-                    loading={searchLoading}
-                    onSearch={handleSearchLocation}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        event.preventDefault();
-                        event.stopPropagation();
-                      }
+                <User className="mr-1.5 h-4 w-4" />
+                <span className="hidden sm:inline">{authButtonLabel}</span>
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-72">
+              {!authUser ? (
+                <div className="flex flex-col gap-3">
+                  <h4 className="font-medium text-sm">Account</h4>
+                  <Input
+                    placeholder="Email"
+                    value={authEmail}
+                    onChange={(e) => setAuthEmail(e.target.value)}
+                  />
+                  <Input
+                    type="password"
+                    placeholder="Password"
+                    value={authPassword}
+                    onChange={(e) => setAuthPassword(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") login.mutate();
                     }}
                   />
-                  {searchError && (
-                    <Typography.Text type="danger" style={{ fontSize: 12 }}>
-                      {searchError}
-                    </Typography.Text>
-                  )}
-                </Form.Item>
-                <Row gutter={[8, 0]}>
-                  <Col span={8}>
-                    <Form.Item
-                      name={['region', 'center_lat']}
-                      label="Latitude"
-                      rules={[{ required: true }]}
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => login.mutate()}
+                      disabled={login.isPending}
                     >
-                      <InputNumber
-                        step={0.0001}
-                        style={{ width: '100%' }}
-                        formatter={formatCoord}
-                        parser={parseCoord}
-                      />
-                    </Form.Item>
-                  </Col>
-                  <Col span={8}>
-                    <Form.Item
-                      name={['region', 'center_lon']}
-                      label="Longitude"
-                      rules={[{ required: true }]}
+                      {login.isPending && (
+                        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                      )}
+                      Login
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => signup.mutate()}
+                      disabled={signup.isPending}
                     >
-                      <InputNumber
-                        step={0.0001}
-                        style={{ width: '100%' }}
-                        formatter={formatCoord}
-                        parser={parseCoord}
-                      />
-                    </Form.Item>
-                  </Col>
-                  <Col span={8}>
-                    <Form.Item name={['region', 'radius_m']} label="Radius (m)">
-                      <InputNumber step={100} style={{ width: '100%' }} />
-                    </Form.Item>
-                  </Col>
-                </Row>
-              </Card>
-
-              <Card title="Physical Model" size="small" style={{ marginBottom: 16 }}>
-                <Space>
-                  <Form.Item name={['model', 'width_inches']} label="Width (in)">
-                    <InputNumber step={0.1} />
-                  </Form.Item>
-                  <Form.Item name={['model', 'height_inches']} label="Height (in)">
-                    <InputNumber step={0.1} disabled />
-                  </Form.Item>
-                </Space>
-                <Form.Item name={['model', 'layer_thickness_mm']} label="Layer Thickness">
-                  <Select>
-                    <Option value={0.1016}>Paper 0.004" (0.1016 mm)</Option>
-                    <Option value={6.35}>1/4" (6.35 mm)</Option>
-                    <Option value={3.175}>1/8" (3.175 mm)</Option>
-                    <Option value={1.5875}>1/16" (1.5875 mm)</Option>
-                  </Select>
-                </Form.Item>
-                <Form.Item name={['model', 'contour_interval_m']} label="Contour Interval (m)">
-                  <InputNumber step={1} />
-                </Form.Item>
-                <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                  Width sets the model scale. Radius and contour interval auto-adjust to match the
-                  selected layer thickness.
-                </Typography.Paragraph>
-              </Card>
-
-              <Card title="Data Sources" size="small" style={{ marginBottom: 16 }}>
-                <Form.Item name={['data', 'dem_source']} label="DEM Source">
-                  <Select>
-                    <Option value="glo_30">Copernicus GLO-30 (Global)</Option>
-                    <Option value="3dep">USGS 3DEP (USA Only)</Option>
-                  </Select>
-                </Form.Item>
-                <Form.Item name={['data', 'imagery_source']} label="Imagery Source">
-                  <Select>
-                    <Option value="naip">NAIP (USA Only)</Option>
-                    <Option value="sentinel-2-l2a">Sentinel-2 (Global)</Option>
-                  </Select>
-                </Form.Item>
-                <Form.Item name={['data', 'imagery_resolution']} label="Imagery Resolution">
-                  <Select>
-                    <Option value="1m">1m (Native - Slow)</Option>
-                    <Option value="5m">5m (Preview)</Option>
-                    <Option value="10m">10m (Fast)</Option>
-                  </Select>
-                </Form.Item>
-              </Card>
-
-              <Card
-                title={
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                    }}
-                  >
-                    <span>Processing</span>
-                    <Form.Item
-                      name={['processing', 'geometric_smoothing']}
-                      valuePropName="checked"
-                      style={{ marginBottom: 0 }}
-                    >
-                      <Switch checkedChildren="Smooth" unCheckedChildren="Chunky" />
-                    </Form.Item>
+                      {signup.isPending && (
+                        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                      )}
+                      Sign Up
+                    </Button>
                   </div>
-                }
-                size="small"
-                style={{ marginBottom: 16 }}
-              >
-                <Typography.Text strong>Smooth Borders</Typography.Text>
-                <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                  Applies geometric smoothing to reduce jagged contour edges for cleaner laser
-                  paths.
-                </Typography.Paragraph>
-
-                <div style={{ marginTop: 12 }}>
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: 8,
-                    }}
-                  >
-                    <Typography.Text strong>Normalize Texture</Typography.Text>
-                    <Form.Item
-                      name={['processing', 'texture_normalize']}
-                      valuePropName="checked"
-                      style={{ marginBottom: 0 }}
-                    >
-                      <Switch checkedChildren="On" unCheckedChildren="Off" />
-                    </Form.Item>
-                  </div>
-                  <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
-                    Equalizes contrast before dithering for more consistent grayscale textures.
-                  </Typography.Paragraph>
-                  <Form.Item
-                    name={['processing', 'texture_normalize_cutoff']}
-                    label="Normalize Cutoff (%)"
-                    tooltip="Percentile cutoff for autocontrast. Higher = flatter, less affected by extremes."
-                  >
-                    <InputNumber min={0} max={10} step={0.5} />
-                  </Form.Item>
-                  <Form.Item
-                    name={['processing', 'texture_gamma']}
-                    label="Texture Gamma"
-                    tooltip="Gamma correction for engraving contrast. 1 = neutral."
-                  >
-                    <InputNumber min={0.5} max={2.0} step={0.05} />
-                  </Form.Item>
                 </div>
-              </Card>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  <p className="text-sm text-muted-foreground">
+                    Signed in as {authUser.email}
+                  </p>
+                  <Button size="sm" variant="outline" onClick={handleLogout}>
+                    Logout
+                  </Button>
+                </div>
+              )}
+              {authError && (
+                <p className="mt-2 text-xs text-destructive">{authError}</p>
+              )}
+            </PopoverContent>
+          </Popover>
 
-              <Card title="Profiles" size="small" style={{ marginBottom: 16 }}>
-                <Form.Item
-                  name={['profiles', 'machine_id']}
-                  label="Machine Profile"
-                  tooltip="Sets bed size, edge margin, part gap, and default calibration toggle."
-                >
-                  <Select
-                    options={machineProfileOptions}
-                    onChange={(value) => handleMachineProfileSelect(String(value))}
-                  />
-                </Form.Item>
-                <Form.Item name={['profiles', 'machine_name']} hidden>
-                  <Input />
-                </Form.Item>
-                <Space.Compact style={{ width: '100%', marginBottom: 8 }}>
-                  <Input
-                    placeholder="Profile name (optional)"
-                    value={machineProfileNameInput}
-                    onChange={(event) => setMachineProfileNameInput(event.target.value)}
-                    onPressEnter={() => saveMachineProfile()}
-                    disabled={!authUser}
-                  />
-                  <Button
-                    icon={<DownloadOutlined />}
-                    onClick={() => saveMachineProfile()}
-                    loading={isCustomProfilesLoading}
-                    disabled={!authUser}
-                  />
-                  <Button
-                    icon={<DeleteOutlined />}
-                    onClick={() => deleteSelectedCustomMachineProfile()}
-                    disabled={!authUser || !selectedMachineIsCustom}
-                  />
-                </Space.Compact>
-
-                <Form.Item
-                  name={['profiles', 'material_id']}
-                  label="Material Profile"
-                  tooltip="Sets sheet size and default layer thickness."
-                >
-                  <Select
-                    options={materialProfileOptions}
-                    onChange={(value) => handleMaterialProfileSelect(String(value))}
-                  />
-                </Form.Item>
-                <Form.Item name={['profiles', 'material_name']} hidden>
-                  <Input />
-                </Form.Item>
-                <Space.Compact style={{ width: '100%', marginBottom: 8 }}>
-                  <Input
-                    placeholder="Profile name (optional)"
-                    value={materialProfileNameInput}
-                    onChange={(event) => setMaterialProfileNameInput(event.target.value)}
-                    onPressEnter={() => saveMaterialProfile()}
-                    disabled={!authUser}
-                  />
-                  <Button
-                    icon={<DownloadOutlined />}
-                    onClick={() => saveMaterialProfile()}
-                    loading={isCustomProfilesLoading}
-                    disabled={!authUser}
-                  />
-                  <Button
-                    icon={<DeleteOutlined />}
-                    onClick={() => deleteSelectedCustomMaterialProfile()}
-                    disabled={!authUser || !selectedMaterialIsCustom}
-                  />
-                </Space.Compact>
-              </Card>
-
-              <Card
-                title={
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                    }}
-                  >
-                    <span>Nesting</span>
-                    <Form.Item
-                      name={['processing', 'nesting', 'enabled']}
-                      valuePropName="checked"
-                      style={{ marginBottom: 0 }}
-                    >
-                      <Switch />
-                    </Form.Item>
-                  </div>
-                }
-                size="small"
-                style={{ marginBottom: 16 }}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-primary-foreground hover:bg-primary-foreground/10"
+                aria-label="Settings"
               >
-                <Typography.Text strong>Enable Nesting</Typography.Text>
-                <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
-                  Packs layers onto sheet layouts for efficient cutting and composite previews.
-                </Typography.Paragraph>
-                <Space>
-                  <Form.Item name={['processing', 'nesting', 'bed_width_in']} label="Bed Width (in)">
-                    <InputNumber step={1} />
-                  </Form.Item>
-                  <Form.Item
-                    name={['processing', 'nesting', 'bed_height_in']}
-                    label="Bed Height (in)"
-                  >
-                    <InputNumber step={1} />
-                  </Form.Item>
-                </Space>
-                <Space>
-                  <Form.Item
-                    name={['processing', 'nesting', 'sheet_width_in']}
-                    label="Sheet Width (in)"
-                  >
-                    <InputNumber step={1} />
-                  </Form.Item>
-                  <Form.Item
-                    name={['processing', 'nesting', 'sheet_height_in']}
-                    label="Sheet Height (in)"
-                  >
-                    <InputNumber step={1} />
-                  </Form.Item>
-                </Space>
-                <Form.Item
-                  name={['processing', 'nesting', 'sheet_margin_in']}
-                  label="Sheet Margin (in)"
-                >
-                  <InputNumber step={0.0625} />
-                </Form.Item>
-                <Form.Item name={['processing', 'nesting', 'sheet_gap_in']} label="Part Gap (in)">
-                  <InputNumber step={0.03125} />
-                </Form.Item>
+                <Settings className="h-4 w-4" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-56">
+              <h4 className="mb-3 font-medium text-sm">Settings</h4>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="dark-mode" className="text-sm">
+                  Dark Mode
+                </Label>
+                <div className="flex items-center gap-2">
+                  <Sun className="h-3.5 w-3.5 text-muted-foreground" />
+                  <Switch
+                    id="dark-mode"
+                    checked={isDarkMode}
+                    onCheckedChange={setIsDarkMode}
+                  />
+                  <Moon className="h-3.5 w-3.5 text-muted-foreground" />
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
+        </div>
+      </header>
+
+      {/* ===== Body ===== */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* ===== Sidebar ===== */}
+        <aside className="flex w-[400px] shrink-0 flex-col border-r border-border bg-sidebar text-sidebar-foreground">
+          <form
+            id="config-form"
+            onSubmit={handleFinish}
+            className="flex flex-1 flex-col overflow-hidden"
+          >
+            <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-4">
+              {/* Region */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Region</CardTitle>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-3">
+                  <FormField label="Search location" htmlFor="search-loc">
+                    <div className="flex gap-2">
+                      <Input
+                        id="search-loc"
+                        placeholder="Search a place or address"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            handleSearchLocation(searchQuery);
+                          }
+                        }}
+                        disabled={disabled}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        disabled={disabled || searchLoading}
+                        onClick={() => handleSearchLocation(searchQuery)}
+                      >
+                        {searchLoading ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Search className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
+                    {searchError && (
+                      <p className="mt-1 text-xs text-destructive">
+                        {searchError}
+                      </p>
+                    )}
+                  </FormField>
+
+                  <div className="grid grid-cols-3 gap-3">
+                    <FormField label="Latitude" htmlFor="lat">
+                      <NumberInput
+                        id="lat"
+                        value={lat}
+                        onChange={(v) => setField("region.center_lat")(v)}
+                        step={0.0001}
+                        formatter={formatCoord}
+                        disabled={disabled}
+                      />
+                    </FormField>
+                    <FormField label="Longitude" htmlFor="lon">
+                      <NumberInput
+                        id="lon"
+                        value={lon}
+                        onChange={(v) => setField("region.center_lon")(v)}
+                        step={0.0001}
+                        formatter={formatCoord}
+                        disabled={disabled}
+                      />
+                    </FormField>
+                    <FormField label="Radius (m)" htmlFor="radius">
+                      <NumberInput
+                        id="radius"
+                        value={radius}
+                        onChange={(v) => setField("region.radius_m")(v)}
+                        step={100}
+                        disabled={disabled}
+                      />
+                    </FormField>
+                  </div>
+                </CardContent>
               </Card>
 
-              <Card title="Calibration Strip" size="small" style={{ marginBottom: 16 }}>
-                <Row gutter={12}>
-                  <Col span={12}>
-                    <Form.Item
-                      name={['processing', 'calibration', 'enabled']}
-                      label="Enable Calibration"
-                      valuePropName="checked"
+              {/* Physical Model */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Physical Model</CardTitle>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-3">
+                  <div className="flex gap-3">
+                    <FormField label="Width (in)" htmlFor="width" className="flex-1">
+                      <NumberInput
+                        id="width"
+                        value={widthIn}
+                        onChange={(v) => setField("model.width_inches")(v)}
+                        step={0.1}
+                        disabled={disabled}
+                      />
+                    </FormField>
+                    <FormField label="Height (in)" htmlFor="height" className="flex-1">
+                      <NumberInput
+                        id="height"
+                        value={heightIn}
+                        onChange={() => {}}
+                        step={0.1}
+                        disabled
+                      />
+                    </FormField>
+                  </div>
+                  <FormField label="Layer Thickness" htmlFor="thickness">
+                    <Select
+                      value={String(thicknessMm)}
+                      onValueChange={(v) =>
+                        setField("model.layer_thickness_mm")(parseFloat(v))
+                      }
+                      disabled={disabled}
                     >
-                      <Switch checkedChildren="On" unCheckedChildren="Off" />
-                    </Form.Item>
-                  </Col>
-                  <Col span={12}>
-                    <Form.Item name={['processing', 'calibration', 'gamma_steps']} label="Gamma Steps">
-                      <InputNumber min={2} max={20} step={1} />
-                    </Form.Item>
-                  </Col>
-                </Row>
-                <Row gutter={12}>
-                  <Col span={12}>
-                    <Form.Item name={['processing', 'calibration', 'gamma_min']} label="Gamma Min">
-                      <InputNumber min={0.05} max={5} step={0.05} />
-                    </Form.Item>
-                  </Col>
-                  <Col span={12}>
-                    <Form.Item name={['processing', 'calibration', 'gamma_max']} label="Gamma Max">
-                      <InputNumber min={0.05} max={5} step={0.05} />
-                    </Form.Item>
-                  </Col>
-                </Row>
-                <Row gutter={12}>
-                  <Col span={8}>
-                    <Form.Item
-                      name={['processing', 'calibration', 'strip_width_mm']}
-                      label="Strip Width (mm)"
-                    >
-                      <InputNumber min={40} max={400} step={1} />
-                    </Form.Item>
-                  </Col>
-                  <Col span={8}>
-                    <Form.Item
-                      name={['processing', 'calibration', 'strip_height_mm']}
-                      label="Strip Height (mm)"
-                    >
-                      <InputNumber min={16} max={120} step={1} />
-                    </Form.Item>
-                  </Col>
-                  <Col span={8}>
-                    <Form.Item name={['processing', 'calibration', 'padding_mm']} label="Padding (mm)">
-                      <InputNumber min={0.5} max={10} step={0.5} />
-                    </Form.Item>
-                  </Col>
-                </Row>
+                      <SelectTrigger id="thickness">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="0.1016">
+                          {'Paper 0.004" (0.1016 mm)'}
+                        </SelectItem>
+                        <SelectItem value="6.35">
+                          {'1/4" (6.35 mm)'}
+                        </SelectItem>
+                        <SelectItem value="3.175">
+                          {'1/8" (3.175 mm)'}
+                        </SelectItem>
+                        <SelectItem value="1.5875">
+                          {'1/16" (1.5875 mm)'}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </FormField>
+                  <FormField label="Contour Interval (m)" htmlFor="contour">
+                    <NumberInput
+                      id="contour"
+                      value={contourInterval}
+                      onChange={(v) => setField("model.contour_interval_m")(v)}
+                      step={1}
+                      disabled={disabled}
+                    />
+                  </FormField>
+                  <p className="text-xs text-muted-foreground">
+                    Width sets the model scale. Radius and contour interval
+                    auto-adjust to match the selected layer thickness.
+                  </p>
+                </CardContent>
               </Card>
 
-              <Card title="Experiment" size="small" style={{ marginBottom: 16 }}>
-                <Form.Item name={['experiment', 'name']} label="Name" rules={[{ required: true }]}>
-                  <Input />
-                </Form.Item>
+              {/* Data Sources */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Data Sources</CardTitle>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-3">
+                  <FormField label="DEM Source" htmlFor="dem">
+                    <Select
+                      value={config.data.dem_source}
+                      onValueChange={(v) => form.set("data.dem_source", v)}
+                      disabled={disabled}
+                    >
+                      <SelectTrigger id="dem">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="glo_30">
+                          Copernicus GLO-30 (Global)
+                        </SelectItem>
+                        <SelectItem value="3dep">
+                          USGS 3DEP (USA Only)
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </FormField>
+                  <FormField label="Imagery Source" htmlFor="imagery">
+                    <Select
+                      value={config.data.imagery_source}
+                      onValueChange={(v) => form.set("data.imagery_source", v)}
+                      disabled={disabled}
+                    >
+                      <SelectTrigger id="imagery">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="naip">NAIP (USA Only)</SelectItem>
+                        <SelectItem value="sentinel-2-l2a">
+                          Sentinel-2 (Global)
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </FormField>
+                  <FormField label="Imagery Resolution" htmlFor="res">
+                    <Select
+                      value={config.data.imagery_resolution}
+                      onValueChange={(v) =>
+                        form.set("data.imagery_resolution", v)
+                      }
+                      disabled={disabled}
+                    >
+                      <SelectTrigger id="res">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1m">1m (Native - Slow)</SelectItem>
+                        <SelectItem value="5m">5m (Preview)</SelectItem>
+                        <SelectItem value="10m">10m (Fast)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </FormField>
+                </CardContent>
               </Card>
 
+              {/* Processing */}
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-3">
+                  <CardTitle className="text-base">Processing</CardTitle>
+                  <Switch
+                    checked={config.processing.geometric_smoothing}
+                    onCheckedChange={(v) =>
+                      form.set("processing.geometric_smoothing", v)
+                    }
+                    disabled={disabled}
+                    aria-label="Geometric smoothing"
+                  />
+                </CardHeader>
+                <CardContent className="flex flex-col gap-3">
+                  <div>
+                    <p className="text-sm font-medium">Smooth Borders</p>
+                    <p className="text-xs text-muted-foreground">
+                      Applies geometric smoothing to reduce jagged contour edges
+                      for cleaner laser paths.
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium">Normalize Texture</p>
+                    <Switch
+                      checked={config.processing.texture_normalize}
+                      onCheckedChange={(v) =>
+                        form.set("processing.texture_normalize", v)
+                      }
+                      disabled={disabled}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Equalizes contrast before dithering for more consistent
+                    grayscale textures.
+                  </p>
+                  <FormField label="Normalize Cutoff (%)" htmlFor="cutoff">
+                    <NumberInput
+                      id="cutoff"
+                      value={config.processing.texture_normalize_cutoff}
+                      onChange={(v) =>
+                        form.set("processing.texture_normalize_cutoff", v)
+                      }
+                      min={0}
+                      max={10}
+                      step={0.5}
+                      disabled={disabled}
+                    />
+                  </FormField>
+                  <FormField label="Texture Gamma" htmlFor="gamma">
+                    <NumberInput
+                      id="gamma"
+                      value={config.processing.texture_gamma}
+                      onChange={(v) => form.set("processing.texture_gamma", v)}
+                      min={0.5}
+                      max={2.0}
+                      step={0.05}
+                      disabled={disabled}
+                    />
+                  </FormField>
+                </CardContent>
+              </Card>
+
+              {/* Profiles */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Profiles</CardTitle>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-3">
+                  <FormField label="Machine Profile" htmlFor="machine">
+                    <Select
+                      value={selectedMachineProfileId}
+                      onValueChange={handleMachineProfileSelect}
+                      disabled={disabled}
+                    >
+                      <SelectTrigger id="machine">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {builtInMachineProfiles.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.name}
+                          </SelectItem>
+                        ))}
+                        {customMachineProfiles.length > 0 && (
+                          <>
+                            {customMachineProfiles.map((p) => (
+                              <SelectItem key={p.id} value={p.id}>
+                                {p.name} (Saved)
+                              </SelectItem>
+                            ))}
+                          </>
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </FormField>
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Profile name (optional)"
+                      value={machineProfileNameInput}
+                      onChange={(e) =>
+                        setMachineProfileNameInput(e.target.value)
+                      }
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          saveMachineProfile();
+                        }
+                      }}
+                      disabled={!authUser}
+                      className="flex-1"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={() => saveMachineProfile()}
+                      disabled={!authUser || isCustomProfilesLoading}
+                    >
+                      <Download className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={() => deleteSelectedCustomMachineProfile()}
+                      disabled={!authUser || !selectedMachineIsCustom}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+
+                  <FormField label="Material Profile" htmlFor="material">
+                    <Select
+                      value={selectedMaterialProfileId}
+                      onValueChange={handleMaterialProfileSelect}
+                      disabled={disabled}
+                    >
+                      <SelectTrigger id="material">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {builtInMaterialProfiles.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.name}
+                          </SelectItem>
+                        ))}
+                        {customMaterialProfiles.length > 0 && (
+                          <>
+                            {customMaterialProfiles.map((p) => (
+                              <SelectItem key={p.id} value={p.id}>
+                                {p.name} (Saved)
+                              </SelectItem>
+                            ))}
+                          </>
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </FormField>
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Profile name (optional)"
+                      value={materialProfileNameInput}
+                      onChange={(e) =>
+                        setMaterialProfileNameInput(e.target.value)
+                      }
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          saveMaterialProfile();
+                        }
+                      }}
+                      disabled={!authUser}
+                      className="flex-1"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={() => saveMaterialProfile()}
+                      disabled={!authUser || isCustomProfilesLoading}
+                    >
+                      <Download className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={() => deleteSelectedCustomMaterialProfile()}
+                      disabled={!authUser || !selectedMaterialIsCustom}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Nesting */}
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-3">
+                  <CardTitle className="text-base">Nesting</CardTitle>
+                  <Switch
+                    checked={config.processing.nesting.enabled}
+                    onCheckedChange={(v) =>
+                      form.set("processing.nesting.enabled", v)
+                    }
+                    disabled={disabled}
+                    aria-label="Enable nesting"
+                  />
+                </CardHeader>
+                <CardContent className="flex flex-col gap-3">
+                  <p className="text-xs text-muted-foreground">
+                    Packs layers onto sheet layouts for efficient cutting and
+                    composite previews.
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <FormField label="Bed Width (in)" htmlFor="bedW">
+                      <NumberInput
+                        id="bedW"
+                        value={bedWidthIn}
+                        onChange={(v) =>
+                          form.set("processing.nesting.bed_width_in", v)
+                        }
+                        step={1}
+                        disabled={disabled}
+                      />
+                    </FormField>
+                    <FormField label="Bed Height (in)" htmlFor="bedH">
+                      <NumberInput
+                        id="bedH"
+                        value={bedHeightIn}
+                        onChange={(v) =>
+                          form.set("processing.nesting.bed_height_in", v)
+                        }
+                        step={1}
+                        disabled={disabled}
+                      />
+                    </FormField>
+                    <FormField label="Sheet Width (in)" htmlFor="sheetW">
+                      <NumberInput
+                        id="sheetW"
+                        value={sheetWidthIn}
+                        onChange={(v) =>
+                          form.set("processing.nesting.sheet_width_in", v)
+                        }
+                        step={1}
+                        disabled={disabled}
+                      />
+                    </FormField>
+                    <FormField label="Sheet Height (in)" htmlFor="sheetH">
+                      <NumberInput
+                        id="sheetH"
+                        value={sheetHeightIn}
+                        onChange={(v) =>
+                          form.set("processing.nesting.sheet_height_in", v)
+                        }
+                        step={1}
+                        disabled={disabled}
+                      />
+                    </FormField>
+                  </div>
+                  <FormField label="Sheet Margin (in)" htmlFor="margin">
+                    <NumberInput
+                      id="margin"
+                      value={sheetMarginIn}
+                      onChange={(v) =>
+                        form.set("processing.nesting.sheet_margin_in", v)
+                      }
+                      step={0.0625}
+                      disabled={disabled}
+                    />
+                  </FormField>
+                  <FormField label="Part Gap (in)" htmlFor="gap">
+                    <NumberInput
+                      id="gap"
+                      value={sheetGapIn}
+                      onChange={(v) =>
+                        form.set("processing.nesting.sheet_gap_in", v)
+                      }
+                      step={0.03125}
+                      disabled={disabled}
+                    />
+                  </FormField>
+                </CardContent>
+              </Card>
+
+              {/* Calibration Strip */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">
+                    Calibration Strip
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex items-center justify-between col-span-2">
+                      <Label className="text-sm">Enable Calibration</Label>
+                      <Switch
+                        checked={calibrationEnabled}
+                        onCheckedChange={(v) =>
+                          form.set("processing.calibration.enabled", v)
+                        }
+                        disabled={disabled}
+                      />
+                    </div>
+                    <FormField label="Gamma Steps" htmlFor="gSteps">
+                      <NumberInput
+                        id="gSteps"
+                        value={config.processing.calibration.gamma_steps}
+                        onChange={(v) =>
+                          form.set("processing.calibration.gamma_steps", v)
+                        }
+                        min={2}
+                        max={20}
+                        step={1}
+                        disabled={disabled}
+                      />
+                    </FormField>
+                    <FormField label="Gamma Min" htmlFor="gMin">
+                      <NumberInput
+                        id="gMin"
+                        value={config.processing.calibration.gamma_min}
+                        onChange={(v) =>
+                          form.set("processing.calibration.gamma_min", v)
+                        }
+                        min={0.05}
+                        max={5}
+                        step={0.05}
+                        disabled={disabled}
+                      />
+                    </FormField>
+                    <FormField label="Gamma Max" htmlFor="gMax">
+                      <NumberInput
+                        id="gMax"
+                        value={config.processing.calibration.gamma_max}
+                        onChange={(v) =>
+                          form.set("processing.calibration.gamma_max", v)
+                        }
+                        min={0.05}
+                        max={5}
+                        step={0.05}
+                        disabled={disabled}
+                      />
+                    </FormField>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <FormField label="Strip W (mm)" htmlFor="sW">
+                      <NumberInput
+                        id="sW"
+                        value={config.processing.calibration.strip_width_mm}
+                        onChange={(v) =>
+                          form.set("processing.calibration.strip_width_mm", v)
+                        }
+                        min={40}
+                        max={400}
+                        step={1}
+                        disabled={disabled}
+                      />
+                    </FormField>
+                    <FormField label="Strip H (mm)" htmlFor="sH">
+                      <NumberInput
+                        id="sH"
+                        value={config.processing.calibration.strip_height_mm}
+                        onChange={(v) =>
+                          form.set("processing.calibration.strip_height_mm", v)
+                        }
+                        min={16}
+                        max={120}
+                        step={1}
+                        disabled={disabled}
+                      />
+                    </FormField>
+                    <FormField label="Pad (mm)" htmlFor="pad">
+                      <NumberInput
+                        id="pad"
+                        value={config.processing.calibration.padding_mm}
+                        onChange={(v) =>
+                          form.set("processing.calibration.padding_mm", v)
+                        }
+                        min={0.5}
+                        max={10}
+                        step={0.5}
+                        disabled={disabled}
+                      />
+                    </FormField>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Experiment */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Experiment</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <FormField label="Name" htmlFor="exp-name">
+                    <Input
+                      id="exp-name"
+                      value={config.experiment.name}
+                      onChange={(e) =>
+                        form.set("experiment.name", e.target.value)
+                      }
+                      disabled={disabled}
+                      required
+                    />
+                  </FormField>
+                </CardContent>
+              </Card>
+
+              {/* Alerts */}
               {submitJob.isError && (
-                <Alert
-                  type="error"
-                  title="Submission Failed"
-                  description={submitJob.error.message}
-                  style={{ marginTop: 16 }}
-                />
+                <Alert variant="destructive">
+                  <AlertTitle>Submission Failed</AlertTitle>
+                  <AlertDescription>
+                    {submitJob.error.message}
+                  </AlertDescription>
+                </Alert>
               )}
               {allJobsError && (
-                <Alert
-                  type="warning"
-                  title="Job status unavailable"
-                  description="Unable to fetch job status from the backend. Results will appear once the connection resumes."
-                  style={{ marginTop: 16 }}
-                />
+                <Alert variant="warning">
+                  <AlertTitle>Job status unavailable</AlertTitle>
+                  <AlertDescription>
+                    Unable to fetch job status from the backend. Results will
+                    appear once the connection resumes.
+                  </AlertDescription>
+                </Alert>
               )}
-              </Form>
-              </div>
-              <div
-                style={{
-                  padding: '16px 20px 20px',
-                  background: isDarkMode ? darkTokens.colorBgBase : lightTokens.colorBgBase,
-                  borderTop: `1px solid ${siderBorder}`,
-                  boxShadow: isDarkMode
-                    ? '0 -6px 12px rgba(15, 23, 42, 0.35)'
-                    : '0 -6px 12px rgba(15, 23, 42, 0.08)',
-                }}
-              >
-                <Button
-                  type="primary"
-                  htmlType="submit"
-                  form="config-form"
-                  loading={!!isRunning}
-                  disabled={!authUser}
-                  block
-                  size="large"
-                >
-                  {isRunning ? 'Processing...' : authUser ? 'Generate Relief' : 'Login to Generate'}
-                </Button>
-                {!authUser && (
-                  <Typography.Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
-                    Use the Login button at top-right to submit and view account-specific jobs.
-                  </Typography.Text>
-                )}
-
-                {isRunning && currentRunningJob && (
-                  <div style={{ marginTop: 12 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <Progress
-                        percent={currentRunningJob.progress}
-                        status="active"
-                        style={{ flex: 1 }}
-                      />
-                      <Popconfirm
-                        title="Cancel this job?"
-                        description="This will stop processing and no outputs will be produced."
-                        okText="Cancel"
-                        cancelText="Keep running"
-                        onConfirm={() => cancelJob.mutate(currentRunningJob.id)}
-                      >
-                        <Button
-                          aria-label="Cancel job"
-                          type="text"
-                          danger
-                          size="small"
-                          icon={<CloseCircleOutlined />}
-                        />
-                      </Popconfirm>
-                    </div>
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: 12,
-                      }}
-                    >
-                      <Typography.Text type="secondary">
-                        {currentRunningJob.message}
-                      </Typography.Text>
-                      <span />
-                    </div>
-                  </div>
-                )}
-              </div>
             </div>
-          </Sider>
-          <Content
-            style={{
-              position: 'relative',
-              background: isDarkMode ? darkTokens.colorBgContainer : lightTokens.colorBgContainer,
-            }}
-          >
-            <Tabs
-              activeKey={activeTab}
-              onChange={setActiveTab}
-              type="card"
-              style={{ height: '100%', padding: '10px 10px 0 10px' }}
-              tabBarExtraContent={{
-                right: (
-                  <Space size={4}>
-                    <Popover content={authContent} title="Account" trigger="click">
-                      <Button size="small" type="text">
-                        {authButtonLabel}
-                      </Button>
-                    </Popover>
-                    <Popover content={settingsContent} title="Settings" trigger="click">
-                      <Button aria-label="Settings" icon={<SettingOutlined />} type="text" size="small" />
-                    </Popover>
-                  </Space>
-                ),
-              }}
-              items={[
-                {
-                  key: 'map',
-                  label: 'Map Selector',
-                  children: (
-                    <div
-                      style={{
-                        position: 'relative',
-                        width: '100%',
-                        height: 'calc(100vh - 64px - 60px)',
-                      }}
-                    >
-                      <div style={{ position: 'absolute', inset: 0 }}>
-                        <MapSelector
-                          lat={lat}
-                          lon={lon}
-                          radius={radius}
-                          setCoords={handleMapCoords}
-                          isActive={activeTab === 'map'}
-                        />
-                      </div>
-                    </div>
-                  ),
-                },
-                {
-                  key: 'jobs',
-                  label: (
-                    <Badge count={jobHistory.length} size="small" offset={[8, 0]}>
-                      <span>Job History</span>
-                    </Badge>
-                  ),
-                  children: (
-                    <div style={{ padding: 16, height: 'calc(100vh - 130px)', overflowY: 'auto' }}>
-                      {!authUser ? (
-                        <Empty description="Login to view your jobs." />
-                      ) : jobHistory.length === 0 ? (
-                        <Empty description="No jobs run yet. Configure settings and click Generate Relief." />
-                      ) : (
-                        <Collapse
-                          activeKey={expandedJobs}
-                          onChange={handleCollapseChange}
-                          items={jobHistory.map((jId, idx) => {
-                            const job = allJobs?.[jId];
-                            const displayJob: JobInfo =
-                              job ??
-                              ({
-                                id: jId,
-                                status: 'pending',
-                                progress: 0,
-                                message: 'Fetching status...',
-                                result_path: undefined,
-                                error: undefined,
-                                created_at: '',
-                                config_summary: 'Fetching status...',
-                              } as JobInfo);
 
-                            return {
-                              key: jId,
-                              label: (
-                                <div
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 12,
-                                    width: '100%',
-                                  }}
-                                >
-                                  {getStatusIcon(displayJob.status)}
-                                  <span style={{ fontWeight: 500 }}>
-                                    Run #{jobHistory.length - idx}
-                                  </span>
-                                  <Text type="secondary" style={{ fontSize: 12 }}>
-                                    {formatTime(displayJob.created_at)}
-                                  </Text>
-                                  <Text type="secondary" style={{ fontSize: 12 }}>
-                                    • {displayJob.config_summary}
-                                  </Text>
-                                  <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-                                    {displayJob.status !== 'running' &&
-                                      displayJob.status !== 'pending' && (
-                                        <Popconfirm
-                                          title="Remove this job from history?"
-                                          okText="Remove"
-                                          cancelText="Keep"
-                                          onConfirm={() => handleDeleteJob(displayJob.id)}
-                                        >
-                                          <Button
-                                            aria-label="Remove job"
-                                            type="text"
-                                            size="small"
-                                            icon={<CloseCircleOutlined />}
-                                          />
-                                        </Popconfirm>
-                                      )}
-                                    {getStatusTag(displayJob.status)}
-                                  </div>
-                                </div>
-                              ),
-                              children: (
-                                <div>
-                                  {displayJob.status === 'running' ||
-                                  displayJob.status === 'pending' ? (
-                                    <div style={{ padding: 20 }}>
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                        <Progress
-                                          percent={displayJob.progress}
-                                          status="active"
-                                          style={{ flex: 1 }}
-                                        />
-                                        <Popconfirm
-                                          title="Cancel this job?"
-                                          description="This will stop processing and no outputs will be produced."
-                                          okText="Cancel"
-                                          cancelText="Keep running"
-                                          onConfirm={() => cancelJob.mutate(displayJob.id)}
-                                        >
-                                          <Button
-                                            aria-label="Cancel job"
-                                            type="text"
-                                            danger
-                                            size="small"
-                                            icon={<CloseCircleOutlined />}
-                                          />
-                                        </Popconfirm>
-                                      </div>
-                                      <div
-                                        style={{
-                                          display: 'flex',
-                                          alignItems: 'center',
-                                          justifyContent: 'space-between',
-                                          gap: 12,
-                                        }}
+            {/* Pinned submit bar */}
+            <div className="shrink-0 border-t border-border bg-background px-5 py-4 shadow-[0_-4px_12px_rgba(0,0,0,0.06)]">
+              <Button
+                type="submit"
+                className="w-full"
+                size="lg"
+                disabled={!authUser || disabled}
+              >
+                {isRunning ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Processing...
+                  </>
+                ) : authUser ? (
+                  "Generate Relief"
+                ) : (
+                  "Login to Generate"
+                )}
+              </Button>
+              {!authUser && (
+                <p className="mt-2 text-xs text-muted-foreground text-center">
+                  Use the Login button at top-right to submit and view
+                  account-specific jobs.
+                </p>
+              )}
+
+              {isRunning && currentRunningJob && (
+                <div className="mt-3 flex flex-col gap-2">
+                  <div className="flex items-center gap-2">
+                    <Progress
+                      value={currentRunningJob.progress}
+                      className="flex-1"
+                    />
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive"
+                          aria-label="Cancel job"
+                        >
+                          <XCircle className="h-4 w-4" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Cancel this job?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This will stop processing and no outputs will be
+                            produced.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Keep running</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() =>
+                              cancelJob.mutate(currentRunningJob.id)
+                            }
+                          >
+                            Cancel
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {currentRunningJob.message}
+                  </p>
+                </div>
+              )}
+            </div>
+          </form>
+        </aside>
+
+        {/* ===== Main Content ===== */}
+        <main className="flex flex-1 flex-col overflow-hidden bg-card">
+          <Tabs
+            value={activeTab}
+            onValueChange={setActiveTab}
+            className="flex flex-1 flex-col"
+          >
+            <div className="flex items-center justify-between border-b border-border px-4 pt-2">
+              <TabsList>
+                <TabsTrigger value="map">Map Selector</TabsTrigger>
+                <TabsTrigger value="jobs" className="flex items-center gap-1.5">
+                  Job History
+                  {jobHistory.length > 0 && (
+                    <Badge
+                      variant="secondary"
+                      className="ml-1 h-5 min-w-5 px-1.5 text-xs"
+                    >
+                      {jobHistory.length}
+                    </Badge>
+                  )}
+                </TabsTrigger>
+              </TabsList>
+            </div>
+
+            <TabsContent value="map" className="relative flex-1 mt-0">
+              <div className="absolute inset-0">
+                <MapSelector
+                  lat={lat}
+                  lon={lon}
+                  radius={radius}
+                  setCoords={handleMapCoords}
+                  isActive={activeTab === "map"}
+                />
+              </div>
+            </TabsContent>
+
+            <TabsContent
+              value="jobs"
+              className="flex-1 overflow-y-auto p-4 mt-0"
+            >
+              {!authUser ? (
+                <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
+                  <User className="h-10 w-10 text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground">
+                    Login to view your jobs.
+                  </p>
+                </div>
+              ) : jobHistory.length === 0 ? (
+                <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
+                  <RefreshCw className="h-10 w-10 text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground">
+                    No jobs run yet. Configure settings and click Generate
+                    Relief.
+                  </p>
+                </div>
+              ) : (
+                <Accordion
+                  type="multiple"
+                  value={expandedJobs}
+                  onValueChange={setExpandedJobs}
+                  className="flex flex-col gap-3"
+                >
+                  {jobHistory.map((jId, idx) => {
+                    const job = allJobs?.[jId];
+                    const displayJob: JobInfo =
+                      job ??
+                      ({
+                        id: jId,
+                        status: "pending",
+                        progress: 0,
+                        message: "Fetching status...",
+                        result_path: undefined,
+                        error: undefined,
+                        created_at: "",
+                        config_summary: "Fetching status...",
+                      } as JobInfo);
+
+                    return (
+                      <AccordionItem
+                        key={jId}
+                        value={jId}
+                        className="rounded-xl border border-border bg-card px-4 overflow-hidden"
+                      >
+                        <AccordionTrigger className="hover:no-underline py-3">
+                          <div className="flex flex-1 items-center gap-3 pr-2">
+                            {getStatusIcon(displayJob.status)}
+                            <span className="font-medium text-sm">
+                              Run #{jobHistory.length - idx}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {formatTime(displayJob.created_at)}
+                            </span>
+                            <span className="text-xs text-muted-foreground hidden md:inline">
+                              {displayJob.config_summary}
+                            </span>
+                            <div className="ml-auto flex items-center gap-2">
+                              {displayJob.status !== "running" &&
+                                displayJob.status !== "pending" && (
+                                  <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7"
+                                        aria-label="Remove job"
+                                        onClick={(e) => e.stopPropagation()}
                                       >
-                                        <Typography.Text type="secondary">
-                                          {displayJob.message}
-                                        </Typography.Text>
-                                        <span />
-                                      </div>
-                                    </div>
-                                  ) : displayJob.status === 'failed' ? (
-                                    <Alert type="error" title="Job Failed" description={displayJob.error} />
-                                  ) : displayJob.status === 'canceled' ? (
-                                    <Alert type="info" title="Job Canceled" description="Canceled by user." />
-                                  ) : (
-                                    <JobResultsPanel
-                                      jobId={displayJob.id}
-                                      isCompleted={displayJob.status === 'completed'}
-                                      authToken={authToken ?? undefined}
-                                    />
-                                  )}
-                                </div>
-                              ),
-                            };
-                          })}
-                        />
-                      )}
-                    </div>
-                  ),
-                },
-              ]}
-            />
-          </Content>
-        </Layout>
-      </Layout>
-    </ConfigProvider>
+                                        <XCircle className="h-3.5 w-3.5" />
+                                      </Button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                      <AlertDialogHeader>
+                                        <AlertDialogTitle>
+                                          Remove this job from history?
+                                        </AlertDialogTitle>
+                                      </AlertDialogHeader>
+                                      <AlertDialogFooter>
+                                        <AlertDialogCancel>
+                                          Keep
+                                        </AlertDialogCancel>
+                                        <AlertDialogAction
+                                          onClick={() =>
+                                            handleDeleteJob(displayJob.id)
+                                          }
+                                        >
+                                          Remove
+                                        </AlertDialogAction>
+                                      </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                  </AlertDialog>
+                                )}
+                              {getStatusBadge(displayJob.status)}
+                            </div>
+                          </div>
+                        </AccordionTrigger>
+                        <AccordionContent>
+                          {displayJob.status === "running" ||
+                          displayJob.status === "pending" ? (
+                            <div className="py-4 flex flex-col gap-3">
+                              <div className="flex items-center gap-2">
+                                <Progress
+                                  value={displayJob.progress}
+                                  className="flex-1"
+                                />
+                                <AlertDialog>
+                                  <AlertDialogTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-8 w-8 text-destructive"
+                                      aria-label="Cancel job"
+                                    >
+                                      <XCircle className="h-4 w-4" />
+                                    </Button>
+                                  </AlertDialogTrigger>
+                                  <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                      <AlertDialogTitle>
+                                        Cancel this job?
+                                      </AlertDialogTitle>
+                                      <AlertDialogDescription>
+                                        This will stop processing and no outputs
+                                        will be produced.
+                                      </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                      <AlertDialogCancel>
+                                        Keep running
+                                      </AlertDialogCancel>
+                                      <AlertDialogAction
+                                        onClick={() =>
+                                          cancelJob.mutate(displayJob.id)
+                                        }
+                                      >
+                                        Cancel
+                                      </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                  </AlertDialogContent>
+                                </AlertDialog>
+                              </div>
+                              <p className="text-xs text-muted-foreground">
+                                {displayJob.message}
+                              </p>
+                            </div>
+                          ) : displayJob.status === "failed" ? (
+                            <Alert variant="destructive" className="my-2">
+                              <AlertTitle>Job Failed</AlertTitle>
+                              <AlertDescription>
+                                {displayJob.error}
+                              </AlertDescription>
+                            </Alert>
+                          ) : displayJob.status === "canceled" ? (
+                            <Alert variant="info" className="my-2">
+                              <AlertTitle>Job Canceled</AlertTitle>
+                              <AlertDescription>
+                                Canceled by user.
+                              </AlertDescription>
+                            </Alert>
+                          ) : (
+                            <JobResultsPanel
+                              jobId={displayJob.id}
+                              isCompleted={
+                                displayJob.status === "completed"
+                              }
+                              authToken={authToken ?? undefined}
+                            />
+                          )}
+                        </AccordionContent>
+                      </AccordionItem>
+                    );
+                  })}
+                </Accordion>
+              )}
+            </TabsContent>
+          </Tabs>
+        </main>
+      </div>
+    </div>
   );
 }
 
