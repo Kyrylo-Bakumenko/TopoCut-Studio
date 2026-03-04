@@ -2,6 +2,7 @@ import numpy as np
 from shapely.geometry import shape, Polygon, MultiPolygon, box
 from typing import List, Dict, Any, Tuple, Optional
 import rasterio
+from rasterio.transform import array_bounds
 from rasterio import features
 from scipy.ndimage import gaussian_filter
 from elevation_relief.geometry.smoothing import smooth_geometry
@@ -69,7 +70,7 @@ def slice_terrain(
     # But usually transform.f is top, transform.f + h*e is bottom (if e is negative)
     
     # Rasterio Box:
-    bounds_poly = box(*rasterio.transform.array_bounds(h, w, transform))
+    bounds_poly = box(*array_bounds(h, w, transform))
 
     start_level = np.floor(min_elev / interval_m) * interval_m
     # Ensure start level is robust
@@ -98,6 +99,11 @@ def slice_terrain(
                 s = shape(geom)
                 if not s.is_valid:
                     s = s.buffer(0)
+
+                # Preserve full perimeter to avoid smoothing/ simplification rounding the square edge.
+                if s.area > 0.95 * bounds_poly.area:
+                    layer_polys.append(bounds_poly)
+                    continue
                 
                 # Simplify
                 # Use a small tolerance relative to resolution.

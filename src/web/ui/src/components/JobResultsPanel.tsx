@@ -17,14 +17,22 @@ import {
 } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
+import { useTexture } from '@react-three/drei';
 import LayerStackPreview from './LayerStackPreview';
-import type { JobFile, JobConfigResponse, SheetManifest, SheetCutout } from '../types';
+import type {
+  JobFile,
+  JobConfigResponse,
+  SheetManifest,
+  SheetCutout,
+  CalibrationManifest,
+} from '../types';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
 
 interface JobResultsPanelProps {
   jobId: string;
   isCompleted: boolean;
+  authToken?: string;
 }
 
 type SheetAssetData = {
@@ -34,7 +42,7 @@ type SheetAssetData = {
   manifest?: SheetManifest;
 };
 
-export default function JobResultsPanel({ jobId, isCompleted }: JobResultsPanelProps) {
+export default function JobResultsPanel({ jobId, isCompleted, authToken }: JobResultsPanelProps) {
   const [tileSize, setTileSize] = useState<number>(100);
   const [gapMm, setGapMm] = useState<number>(1.0);
   const [viewMode, setViewMode] = useState<'tiles' | '3d'>('tiles');
@@ -57,6 +65,7 @@ export default function JobResultsPanel({ jobId, isCompleted }: JobResultsPanelP
   const sidePanelContentHeight = Math.max(200, previewHeight);
   const sheetTileSize = tileSize === 64 ? 100 : tileSize === 100 ? 140 : 180;
   const { token } = theme.useToken();
+  const authHeaders = authToken ? { Authorization: `Bearer ${authToken}` } : undefined;
   const activeLayerId = pinnedLayerId ?? hoveredLayerId;
   const normalizeLayerId = (layerId: string) => layerId.replace(/\.png$/i, '');
   const normalizedActiveLayerId = activeLayerId ? normalizeLayerId(activeLayerId) : null;
@@ -64,42 +73,66 @@ export default function JobResultsPanel({ jobId, isCompleted }: JobResultsPanelP
   const isResizingRef = useRef(false);
 
   const { data: jobFiles, isLoading } = useQuery({
-    queryKey: ['jobFiles', jobId],
+    queryKey: ['jobFiles', jobId, authToken],
     queryFn: async () => {
-      const res = await axios.get(`${API_URL}/jobs/${jobId}/files`);
+      const res = await axios.get(`${API_URL}/jobs/${jobId}/files`, { headers: authHeaders });
       return res.data.files as JobFile[];
     },
-    enabled: isCompleted,
+    enabled: isCompleted && !!authHeaders,
   });
 
   const { data: jobConfig } = useQuery({
-    queryKey: ['jobConfig', jobId],
+    queryKey: ['jobConfig', jobId, authToken],
     queryFn: async () => {
-      const res = await axios.get(`${API_URL}/jobs/${jobId}/config`);
+      const res = await axios.get(`${API_URL}/jobs/${jobId}/config`, { headers: authHeaders });
       return res.data as JobConfigResponse;
     },
-    enabled: isCompleted,
+    enabled: isCompleted && !!authHeaders,
   });
 
-  const manifestFiles = (jobFiles ?? []).filter(
-    (f) => f.category === 'nested' && f.type === 'json',
+  const sheetManifestFiles = (jobFiles ?? []).filter(
+    (f) => f.category === 'nested' && f.type === 'json' && /^sheet_\d+\.json$/i.test(f.name),
+  );
+  const calibrationManifestFile = (jobFiles ?? []).find(
+    (f) => f.category === 'nested' && f.type === 'json' && f.name === 'calibration_manifest.json',
   );
 
   const { data: sheetManifests } = useQuery({
-    queryKey: ['sheetManifests', jobId],
+    queryKey: ['sheetManifests', jobId, authToken],
     queryFn: async () => {
       const responses = await Promise.all(
-        manifestFiles.map((file) => axios.get(`${API_URL}${file.url}`)),
+        sheetManifestFiles.map((file) => axios.get(`${API_URL}${file.url}`)),
       );
       return responses.map((res) => res.data as SheetManifest);
     },
-    enabled: isCompleted && manifestFiles.length > 0,
+    enabled: isCompleted && sheetManifestFiles.length > 0 && !!authHeaders,
+  });
+
+  const { data: calibrationManifest } = useQuery({
+    queryKey: ['calibrationManifest', jobId, authToken],
+    queryFn: async () => {
+      if (!calibrationManifestFile) return null;
+      const res = await axios.get(`${API_URL}${calibrationManifestFile.url}`);
+      return res.data as CalibrationManifest;
+    },
+    enabled: isCompleted && !!calibrationManifestFile && !!authHeaders,
   });
 
   const resolvedFiles = jobFiles ?? [];
-  const nestedSheets = resolvedFiles.filter((f) => f.category === 'nested' && f.type === 'svg');
+  const nestedSheets = resolvedFiles.filter(
+    (f) => f.category === 'nested' && f.type === 'svg' && /^sheet_\d+\.svg$/i.test(f.name),
+  );
   const compositeSheets = resolvedFiles.filter(
-    (f) => f.category === 'nested' && f.type === 'png' && f.name.includes('composite'),
+    (f) =>
+      f.category === 'nested' &&
+      f.type === 'png' &&
+      /^sheet_\d+_composite\.png$/i.test(f.name),
+  );
+  const cricutPrintSheets = resolvedFiles.filter(
+    (f) =>
+      f.category === 'nested' &&
+      f.type === 'png' &&
+      /^sheet_\d+_cricut_print\.png$/i.test(f.name),
   );
   const textures = resolvedFiles
     .filter((f) => f.category === 'textures' && f.type === 'png')
@@ -114,6 +147,7 @@ export default function JobResultsPanel({ jobId, isCompleted }: JobResultsPanelP
   const modelWidthIn = jobConfig?.config?.model?.width_inches ?? 5.0;
   const modelHeightIn = jobConfig?.config?.model?.height_inches ?? 5.0;
   const layerThicknessMm = jobConfig?.config?.model?.layer_thickness_mm ?? 3.175;
+  const isCricutJob = (jobConfig?.config?.profiles?.machine_id ?? '').toLowerCase() === 'cricut-maker-3';
   const layerTextures = textures.map((item) => {
     const elevMatch = item.name.match(/elev_(\d+)/);
     const elev = elevMatch ? parseInt(elevMatch[1]) : 0;
@@ -124,6 +158,13 @@ export default function JobResultsPanel({ jobId, isCompleted }: JobResultsPanelP
     };
   });
 
+  useEffect(() => {
+    if (layerTextures.length === 0) return;
+    layerTextures.forEach((layer) => {
+      useTexture.preload(layer.url);
+    });
+  }, [layerTextures]);
+
   const sheetManifestMap = useMemo(() => {
     const map = new Map<string, SheetManifest>();
     (sheetManifests ?? []).forEach((manifest) => {
@@ -131,6 +172,15 @@ export default function JobResultsPanel({ jobId, isCompleted }: JobResultsPanelP
     });
     return map;
   }, [sheetManifests]);
+
+  const cricutPrintUrlMap = useMemo(() => {
+    const map = new Map<string, string>();
+    cricutPrintSheets.forEach((sheet) => {
+      const sheetId = sheet.name.replace('_cricut_print.png', '');
+      map.set(sheetId, `${API_URL}${sheet.url}`);
+    });
+    return map;
+  }, [cricutPrintSheets]);
 
   const sheetAssets = useMemo(() => {
     const map = new Map<string, SheetAssetData>();
@@ -409,17 +459,38 @@ export default function JobResultsPanel({ jobId, isCompleted }: JobResultsPanelP
           const fillOpacity = isActive ? 0.16 : 0;
           const labelX = cutout.label_point[0];
           const labelY = sheetHeight - cutout.label_point[1];
-          const angleRad = (cutout.rotation_deg * Math.PI) / 180;
-          const dirX = -Math.sin(angleRad);
-          const dirY = -Math.cos(angleRad);
-          const endX = labelX + dirX * arrowLength;
-          const endY = labelY + dirY * arrowLength;
-          const perpX = -dirY;
-          const perpY = dirX;
-          const leftX = endX - dirX * arrowHead + perpX * arrowHead;
-          const leftY = endY - dirY * arrowHead + perpY * arrowHead;
-          const rightX = endX - dirX * arrowHead - perpX * arrowHead;
-          const rightY = endY - dirY * arrowHead - perpY * arrowHead;
+          let leaderStartX = labelX;
+          let leaderStartY = labelY;
+          let leaderEndX = labelX;
+          let leaderEndY = labelY;
+          let showLeader = false;
+
+          if (cutout.leader_start_point && cutout.leader_end_point) {
+            leaderStartX = cutout.leader_start_point[0];
+            leaderStartY = sheetHeight - cutout.leader_start_point[1];
+            leaderEndX = cutout.leader_end_point[0];
+            leaderEndY = sheetHeight - cutout.leader_end_point[1];
+            showLeader = true;
+          } else if (cutout.label_mode !== 'inside_white') {
+            const angleRad = (cutout.rotation_deg * Math.PI) / 180;
+            const dirX = -Math.sin(angleRad);
+            const dirY = -Math.cos(angleRad);
+            leaderEndX = labelX + dirX * arrowLength;
+            leaderEndY = labelY + dirY * arrowLength;
+            showLeader = true;
+          }
+
+          const leaderDx = leaderEndX - leaderStartX;
+          const leaderDy = leaderEndY - leaderStartY;
+          const leaderNorm = Math.hypot(leaderDx, leaderDy) || 1;
+          const unitX = leaderDx / leaderNorm;
+          const unitY = leaderDy / leaderNorm;
+          const perpX = -unitY;
+          const perpY = unitX;
+          const leftX = leaderEndX - unitX * arrowHead + perpX * arrowHead;
+          const leftY = leaderEndY - unitY * arrowHead + perpY * arrowHead;
+          const rightX = leaderEndX - unitX * arrowHead - perpX * arrowHead;
+          const rightY = leaderEndY - unitY * arrowHead - perpY * arrowHead;
           const labelVisible = showLabels || isActive;
           const inactiveOpacity = dimInactive && normalizedActiveLayerId && !isActive ? 0.2 : 1;
           return (
@@ -444,23 +515,27 @@ export default function JobResultsPanel({ jobId, isCompleted }: JobResultsPanelP
               >
                 <title>{`Layer ${cutout.layer_index + 1} • ${cutout.elevation_m}m`}</title>
               </path>
-              <line
-                x1={labelX}
-                y1={labelY}
-                x2={endX}
-                y2={endY}
-                stroke={strokeColor}
-                strokeWidth={1}
-                vectorEffect="non-scaling-stroke"
-                opacity={isActive ? 0.9 : 0.5}
-                pointerEvents="none"
-              />
-              <polygon
-                points={`${endX},${endY} ${leftX},${leftY} ${rightX},${rightY}`}
-                fill={strokeColor}
-                opacity={isActive ? 0.9 : 0.5}
-                pointerEvents="none"
-              />
+              {showLeader && (
+                <>
+                  <line
+                    x1={leaderStartX}
+                    y1={leaderStartY}
+                    x2={leaderEndX}
+                    y2={leaderEndY}
+                    stroke={strokeColor}
+                    strokeWidth={1}
+                    vectorEffect="non-scaling-stroke"
+                    opacity={isActive ? 0.9 : 0.5}
+                    pointerEvents="none"
+                  />
+                  <polygon
+                    points={`${leaderEndX},${leaderEndY} ${leftX},${leftY} ${rightX},${rightY}`}
+                    fill={strokeColor}
+                    opacity={isActive ? 0.9 : 0.5}
+                    pointerEvents="none"
+                  />
+                </>
+              )}
               {labelVisible && (
                 <text
                   x={labelX}
@@ -845,11 +920,69 @@ export default function JobResultsPanel({ jobId, isCompleted }: JobResultsPanelP
         </>
       )}
 
+      {viewMode === 'tiles' && calibrationManifest && (
+        <Card size="small" style={{ marginTop: 16 }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 8,
+              marginBottom: 6,
+            }}
+          >
+            <Typography.Text strong>Calibration</Typography.Text>
+            {calibrationManifestFile && (
+              <Button
+                type="link"
+                size="small"
+                href={`${API_URL}${calibrationManifestFile.url}`}
+                target="_blank"
+              >
+                Download Manifest
+              </Button>
+            )}
+          </div>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {calibrationManifest.legend}
+          </Typography.Text>
+          <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {calibrationManifest.placements.map((placement) => (
+              <Typography.Text key={`${placement.sheet_id}-${placement.sheet_index}`} style={{ fontSize: 12 }}>
+                {placement.sheet_id} • {Math.round(placement.w_mm)}×{Math.round(placement.h_mm)} mm • γ{' '}
+                {calibrationManifest.gamma_values[0]?.toFixed(2)} -{' '}
+                {calibrationManifest.gamma_values[
+                  calibrationManifest.gamma_values.length - 1
+                ]?.toFixed(2)}
+              </Typography.Text>
+            ))}
+          </div>
+        </Card>
+      )}
+
       {viewMode === 'tiles' && nestedSheets.length > 0 && (
         <>
-          <Typography.Title level={5} style={{ marginTop: 16, marginBottom: 12 }}>
-            Nested Sheets (Vector)
-          </Typography.Title>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginTop: 16,
+              marginBottom: 12,
+            }}
+          >
+            <Typography.Title level={5} style={{ margin: 0 }}>
+              Nested Sheets (Vector)
+            </Typography.Title>
+            <Button
+              type="link"
+              size="small"
+              href={`${API_URL}/jobs/${jobId}/download?kind=nested`}
+              target="_blank"
+            >
+              Download All
+            </Button>
+          </div>
           <Row gutter={[12, 12]}>
             {nestedSheets.map((item) => (
               <Col key={item.url} xs={24} sm={12} md={12} lg={8} xl={6}>
@@ -904,6 +1037,11 @@ export default function JobResultsPanel({ jobId, isCompleted }: JobResultsPanelP
           <Row gutter={[12, 12]}>
             {compositeSheets.map((item) => {
               const sheetId = item.name.replace('_composite.png', '');
+              const pngDownloadUrl = cricutPrintUrlMap.get(sheetId) ?? `${API_URL}${item.url}`;
+              const pngDownloadLabel =
+                isCricutJob && cricutPrintUrlMap.has(sheetId)
+                  ? 'Download PNG (Cricut)'
+                  : 'Download PNG';
               return (
                 <Col key={item.url} xs={24} sm={12} md={12} lg={8} xl={6}>
                   <Card
@@ -925,10 +1063,18 @@ export default function JobResultsPanel({ jobId, isCompleted }: JobResultsPanelP
                       <Button
                         type="link"
                         size="small"
-                        href={`${API_URL}${item.url}`}
+                        href={pngDownloadUrl}
                         target="_blank"
                       >
-                        Download PNG
+                        {pngDownloadLabel}
+                      </Button>,
+                      <Button
+                        type="link"
+                        size="small"
+                        href={`${API_URL}${item.url.replace('_composite.png', '_bundle.svg')}`}
+                        target="_blank"
+                      >
+                        Download Bundle SVG
                       </Button>,
                       <Button
                         type="link"

@@ -89,6 +89,10 @@ def fetch_imagery_stac(
     Fetch imagery from Microsoft Planetary Computer STAC.
     Falls back to USGS REST API if STAC fails for NAIP.
     """
+    if len(bounds) != 4:
+        raise ValueError(f"Expected bounds of length 4 (minx, miny, maxx, maxy), got {len(bounds)}")
+    bounds_4326 = bounds[:4]
+
     catalog = pystac_client.Client.open(
         "https://planetarycomputer.microsoft.com/api/stac/v1",
         modifier=planetary_computer.sign_inplace,
@@ -159,12 +163,14 @@ def fetch_imagery_stac(
     src_crs = sources[0].crs
     if src_crs and src_crs.to_string() != "EPSG:4326":
         try:
-            left, bottom, right, top = transform_bounds("EPSG:4326", src_crs, *bounds)
+            left, bottom, right, top = transform_bounds(
+                "EPSG:4326", src_crs, *bounds_4326, densify_pts=21
+            )
             merge_bounds = (left, bottom, right, top)
         except Exception:
-            merge_bounds = bounds
+            merge_bounds = bounds_4326
     else:
-        merge_bounds = bounds
+        merge_bounds = bounds_4326
     
     # determine target resolution for COG overview-based fetch
     # this makes GDAL read from overviews, drastically reducing network transfer
