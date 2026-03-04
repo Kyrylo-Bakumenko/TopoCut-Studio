@@ -21,17 +21,15 @@ def resolve_bed_geometry(nesting_cfg: Dict[str, Any]) -> Dict[str, float]:
     if sheet_gap_mm < 0:
         raise ValueError("Part gap cannot be negative.")
 
-    usable_width_mm = bed_width_mm - (2.0 * sheet_margin_mm)
-    usable_height_mm = bed_height_mm - (2.0 * sheet_margin_mm)
-    if usable_width_mm <= 0 or usable_height_mm <= 0:
-        raise ValueError("Machine bed is fully consumed by edge margins.")
-    if sheet_width_mm > usable_width_mm or sheet_height_mm > usable_height_mm:
+    # sheet_margin_mm is the inset from sheet edge to design area — it is a per-sheet
+    # property and does not affect how sheets are arranged on the bed.
+    if sheet_width_mm > bed_width_mm or sheet_height_mm > bed_height_mm:
         raise ValueError(
-            "Material sheet does not fit within machine bed after applying edge margins."
+            "Material sheet does not fit within machine bed dimensions."
         )
 
-    cols = int(floor((usable_width_mm + sheet_gap_mm) / (sheet_width_mm + sheet_gap_mm)))
-    rows = int(floor((usable_height_mm + sheet_gap_mm) / (sheet_height_mm + sheet_gap_mm)))
+    cols = int(floor((bed_width_mm + sheet_gap_mm) / (sheet_width_mm + sheet_gap_mm)))
+    rows = int(floor((bed_height_mm + sheet_gap_mm) / (sheet_height_mm + sheet_gap_mm)))
     if cols < 1 or rows < 1:
         raise ValueError("Unable to place any sheets on the selected bed geometry.")
 
@@ -42,8 +40,6 @@ def resolve_bed_geometry(nesting_cfg: Dict[str, Any]) -> Dict[str, float]:
         "bed_height_mm": bed_height_mm,
         "sheet_margin_mm": sheet_margin_mm,
         "sheet_gap_mm": sheet_gap_mm,
-        "usable_width_mm": usable_width_mm,
-        "usable_height_mm": usable_height_mm,
         "cols": cols,
         "rows": rows,
         "capacity": cols * rows,
@@ -60,10 +56,9 @@ def build_bed_layout(
     sheet_margin_mm: float,
     sheet_gap_mm: float,
 ) -> Dict[str, Any]:
-    usable_width_mm = bed_width_mm - (2.0 * sheet_margin_mm)
-    usable_height_mm = bed_height_mm - (2.0 * sheet_margin_mm)
-    cols = int(floor((usable_width_mm + sheet_gap_mm) / (sheet_width_mm + sheet_gap_mm)))
-    rows = int(floor((usable_height_mm + sheet_gap_mm) / (sheet_height_mm + sheet_gap_mm)))
+    # sheet_margin_mm is the design-to-sheet-edge inset; it does not reduce bed usable area.
+    cols = int(floor((bed_width_mm + sheet_gap_mm) / (sheet_width_mm + sheet_gap_mm)))
+    rows = int(floor((bed_height_mm + sheet_gap_mm) / (sheet_height_mm + sheet_gap_mm)))
     if cols < 1 or rows < 1:
         raise ValueError("Unable to place any sheets on the selected bed geometry.")
     capacity = cols * rows
@@ -77,8 +72,8 @@ def build_bed_layout(
         row = slot_index // cols
         col = slot_index % cols
 
-        x_mm = sheet_margin_mm + col * (sheet_width_mm + sheet_gap_mm)
-        y_top = bed_height_mm - sheet_margin_mm - sheet_height_mm
+        x_mm = col * (sheet_width_mm + sheet_gap_mm)
+        y_top = bed_height_mm - sheet_height_mm
         y_mm = y_top - row * (sheet_height_mm + sheet_gap_mm)
 
         if bed_index not in beds:
